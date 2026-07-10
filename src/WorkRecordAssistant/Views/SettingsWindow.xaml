@@ -1,0 +1,144 @@
+<Window x:Class="WorkRecordAssistant.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:WorkRecordAssistant.ViewModels"
+        Title="设置"
+        Width="480" Height="640"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{DynamicResource BackgroundBrush}"
+        FontFamily="Segoe UI Variable, Segoe UI, Microsoft YaHei UI">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="20">
+        <StackPanel>
+
+            <TextBlock Text="设置" FontSize="20" FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,16" />
+
+            <!-- 常规 -->
+            <TextBlock Text="常规" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
+            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+                <StackPanel>
+                    <CheckBox Content="开机自动启动" IsChecked="{Binding AutoStart}" Margin="0,0,0,8" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="主题模式" Width="120" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <ComboBox ItemsSource="{Binding ThemeModes}" SelectedItem="{Binding ThemeMode}" Width="200" />
+                    </StackPanel>
+                    <CheckBox Content="显示记录时间" IsChecked="{Binding ShowRecordTime}" />
+                </StackPanel>
+            </Border>
+
+            <!-- 窗口行为 -->
+            <TextBlock Text="窗口行为" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
+            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="自动隐藏延迟(ms)" Width="140" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBox Style="{StaticResource RoundedTextBox}" Width="100"
+                                 Text="{Binding AutoHideDelayMs, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="动画时长(ms)" Width="140" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBox Style="{StaticResource RoundedTextBox}" Width="100"
+                                 Text="{Binding AnimationDurationMs, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="吸附距离(px)" Width="140" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBox Style="{StaticResource RoundedTextBox}" Width="100"
+                                 Text="{Binding SnapDistancePx, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="隐藏条宽度(px)" Width="140" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBox Style="{StaticResource RoundedTextBox}" Width="100"
+                                 Text="{Binding HiddenStripWidthPx, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- 排序 -->
+            <TextBlock Text="记录" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
+            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="默认排序" Width="120" VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <ComboBox ItemsSource="{Binding SortOrders}" SelectedItem="{Binding DefaultSortOrder}" Width="200" />
+                </StackPanel>
+            </Border>
+
+            <!-- 复制模板 -->
+            <TextBlock Text="复制模板" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
+            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="整体模板 ({date} {items} {count})" FontSize="11"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                    <TextBox Style="{StaticResource RoundedTextBox}"
+                             Text="{Binding CopyTemplate, UpdateSourceTrigger=PropertyChanged}"
+                             AcceptsReturn="True" MinHeight="60" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <TextBlock Text="条目模板 ({index} {content} {time})" FontSize="11"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                    <TextBox Style="{StaticResource RoundedTextBox}"
+                             Text="{Binding CopyItemTemplate, UpdateSourceTrigger=PropertyChanged}"
+                             AcceptsReturn="True" MinHeight="50" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- 快捷按钮管理 -->
+            <TextBlock Text="快捷按钮" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
+            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+                <StackPanel>
+                    <ItemsControl ItemsSource="{Binding QuickButtons}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:QuickButtonViewModel}">
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" Style="{StaticResource RoundedTextBox}"
+                                             Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,4,0" />
+                                    <TextBox Grid.Column="1" Style="{StaticResource RoundedTextBox}"
+                                             Text="{Binding Url, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,4,0" />
+                                    <CheckBox Grid.Column="2" Content="显示" IsChecked="{Binding IsVisible}"
+                                              VerticalAlignment="Center" Margin="0,0,4,0" />
+                                    <Button Grid.Column="3" Style="{StaticResource IconButton}" Content="×"
+                                            Command="{Binding DataContext.RemoveQuickButtonCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Style="{StaticResource SecondaryButton}" Content="+ 添加快捷按钮"
+                            Command="{Binding AddQuickButtonCommand}" HorizontalAlignment="Left" />
+                </StackPanel>
+            </Border>
+
+            <!-- 数据 -->
+            <TextBlock Text="数据" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
+            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+                <StackPanel Orientation="Horizontal">
+                    <Button Style="{StaticResource SecondaryButton}" Content="导出" Margin="0,0,8,0"
+                            Command="{Binding ExportDataCommand}" />
+                    <Button Style="{StaticResource SecondaryButton}" Content="导入" Margin="0,0,8,0"
+                            Command="{Binding ImportDataCommand}" />
+                    <Button Style="{StaticResource SecondaryButton}" Content="备份"
+                            Command="{Binding BackupDataCommand}" />
+                </StackPanel>
+            </Border>
+
+            <!-- 保存 -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="0,0,12,0"
+                           Foreground="{DynamicResource TextSecondaryBrush}" />
+                <Button Style="{StaticResource PrimaryButton}" Content="保存设置"
+                        Command="{Binding SaveCommand}" Click="SaveAndClose_Click" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Window>
