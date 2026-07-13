@@ -281,6 +281,13 @@ public partial class MainWindow : Window
             _viewModel.SelectedDate = dialog.SelectedDate.Value;
     }
 
+    private void CopyToday_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new CopyChoiceDialog { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        _viewModel.CopyTasks(dialog.SelectedScope);
+    }
+
     private void OpenSettings_Click(object sender, RoutedEventArgs e)
     {
         var settingsWindow = App.Services.GetRequiredService<SettingsWindow>();

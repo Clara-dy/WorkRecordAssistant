@@ -165,9 +165,9 @@
                 <Button Grid.Column="0"
                         Style="{StaticResource CopyButton}"
                         Content="一键复制"
-                        ToolTip="复制当天已完成任务"
+                        ToolTip="选择复制全部或已完成任务"
                         Margin="0,0,4,0"
-                        Command="{Binding CopyTodayCommand}" />
+                        Click="CopyToday_Click" />
                 <Button Grid.Column="1"
                         Style="{StaticResource PrimaryButton}"
                         Content="添加任务"

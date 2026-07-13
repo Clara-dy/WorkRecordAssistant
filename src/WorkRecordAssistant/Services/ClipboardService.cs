@@ -1,40 +1,37 @@
-using System.Diagnostics;
 using System.Windows;
 
 namespace WorkRecordAssistant.Services;
 
 /// <summary>
-/// 剪贴板与外部链接辅助服务。
+/// 剪贴板与 URL 打开。
 /// </summary>
 public static class ClipboardService
 {
-    public static void CopyText(string text)
+    public static bool CopyText(string text)
     {
         try
         {
             Clipboard.SetText(text);
+            return true;
         }
         catch
         {
-            // 剪贴板被占用时忽略
+            return false;
         }
     }
 
     public static void OpenUrl(string url)
     {
-        if (string.IsNullOrWhiteSpace(url)) return;
-
         try
         {
-            Process.Start(new ProcessStartInfo
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
             {
-                FileName = url,
                 UseShellExecute = true
             });
         }
         catch
         {
-            // 无效 URL
+            // 忽略无法打开 URL
         }
     }
 }

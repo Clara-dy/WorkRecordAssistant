@@ -1,0 +1,43 @@
+<Window x:Class="WorkRecordAssistant.Views.CopyChoiceDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="选择复制范围"
+        SizeToContent="WidthAndHeight"
+        MinWidth="300"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{DynamicResource BackgroundBrush}"
+        FontFamily="Segoe UI Variable, Segoe UI, Microsoft YaHei UI">
+    <StackPanel Margin="24" MinWidth="252">
+        <TextBlock Text="请选择要复制的内容范围"
+                   FontSize="14"
+                   Foreground="{DynamicResource TextPrimaryBrush}"
+                   Margin="0,0,0,16"
+                   TextWrapping="Wrap" />
+
+        <Button Style="{StaticResource PrimaryButton}"
+                Content="全部复制"
+                MinHeight="44"
+                FontSize="14"
+                Padding="16,10"
+                HorizontalAlignment="Stretch"
+                Margin="0,0,0,10"
+                Click="CopyAll_Click" />
+        <Button Style="{StaticResource CopyButton}"
+                Content="完成复制"
+                MinHeight="44"
+                FontSize="14"
+                Padding="16,10"
+                HorizontalAlignment="Stretch"
+                Margin="0,0,0,20"
+                Click="CopyCompleted_Click" />
+
+        <Button Style="{StaticResource SecondaryButton}"
+                Content="取消"
+                MinWidth="80"
+                MinHeight="36"
+                Padding="16,8"
+                HorizontalAlignment="Right"
+                Click="Cancel_Click" />
+    </StackPanel>
+</Window>

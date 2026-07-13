@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using WorkRecordAssistant.Helpers;
 
 namespace WorkRecordAssistant.ViewModels;
 
@@ -17,6 +18,8 @@ public partial class WorkRecordItemViewModel : ObservableObject, IRecordListItem
         SortOrder = record.SortOrder;
         IsCompleted = record.IsCompleted;
         IsStarred = record.IsStarred;
+        VersionNumber = record.VersionNumber;
+        VersionInfo = record.VersionInfo;
         ShowTime = showTime;
     }
 
@@ -48,6 +51,12 @@ public partial class WorkRecordItemViewModel : ObservableObject, IRecordListItem
     [ObservableProperty]
     private bool _isStarred;
 
+    [ObservableProperty]
+    private string? _versionNumber;
+
+    [ObservableProperty]
+    private string? _versionInfo;
+
     public DateTime CreatedAt { get; }
 
     public DateTime UpdatedAt { get; }
@@ -60,6 +69,24 @@ public partial class WorkRecordItemViewModel : ObservableObject, IRecordListItem
 
     public string StartDateHint => $"开始 {CreatedAt:yyyy-MM-dd}";
 
+    public bool ShowTimeVersionHint =>
+        VersionDisplayHelper.ShouldShowTimeVersionHint(ShowTime, VersionNumber, VersionInfo);
+
+    public bool ShowTimePart => ShowTime || !string.IsNullOrWhiteSpace(VersionNumber);
+
+    public string TimePart => ShowTimePart ? CreatedAt.ToString("HH:mm") : string.Empty;
+
+    public bool ShowVersionNumberPart => !string.IsNullOrWhiteSpace(VersionNumber);
+
+    public string VersionNumberPart => VersionNumber?.Trim() ?? string.Empty;
+
+    public bool ShowVersionInfoPart => !string.IsNullOrWhiteSpace(VersionInfo);
+
+    public string VersionInfoPart => VersionInfo?.Trim() ?? string.Empty;
+
+    public string TimeVersionHint =>
+        VersionDisplayHelper.BuildTimeVersionHint(CreatedAt, ShowTime, VersionNumber, VersionInfo);
+
     public bool IsDisplayUnderlined => IsCompleted;
 
     public string DisplayText => Content;
@@ -70,7 +97,27 @@ public partial class WorkRecordItemViewModel : ObservableObject, IRecordListItem
         OnPropertyChanged(nameof(ShowCompleteButton));
     }
 
-    partial void OnShowTimeChanged(bool value) => OnPropertyChanged(nameof(DisplayText));
+    partial void OnShowTimeChanged(bool value)
+    {
+        NotifyVersionDisplayProperties();
+        OnPropertyChanged(nameof(DisplayText));
+    }
+
+    partial void OnVersionNumberChanged(string? value) => NotifyVersionDisplayProperties();
+
+    partial void OnVersionInfoChanged(string? value) => NotifyVersionDisplayProperties();
+
+    private void NotifyVersionDisplayProperties()
+    {
+        OnPropertyChanged(nameof(ShowTimeVersionHint));
+        OnPropertyChanged(nameof(TimeVersionHint));
+        OnPropertyChanged(nameof(ShowTimePart));
+        OnPropertyChanged(nameof(TimePart));
+        OnPropertyChanged(nameof(ShowVersionNumberPart));
+        OnPropertyChanged(nameof(VersionNumberPart));
+        OnPropertyChanged(nameof(ShowVersionInfoPart));
+        OnPropertyChanged(nameof(VersionInfoPart));
+    }
 
     partial void OnIsCompletedChanged(bool value)
     {

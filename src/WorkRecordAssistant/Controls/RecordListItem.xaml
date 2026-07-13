@@ -78,6 +78,9 @@
                                 <MenuItem x:Name="UnstarMenuItem"
                                           Header="取消星级"
                                           Click="UnstarMenuItem_Click" />
+                                <Separator />
+                                <MenuItem Header="设置版本号"
+                                          Click="SetVersionMenuItem_Click" />
                             </ContextMenu>
                         </Border.ContextMenu>
                         <Grid>
@@ -142,6 +145,31 @@
                                                Foreground="{DynamicResource TextSecondaryBrush}"
                                                Margin="0,0,0,2"
                                                Visibility="{Binding ShowStartDateHint, Converter={StaticResource BoolVis}}" />
+                                    <StackPanel Orientation="Horizontal"
+                                                Margin="0,0,0,2"
+                                                Visibility="{Binding ShowTimeVersionHint, Converter={StaticResource BoolVis}}">
+                                        <TextBlock Text="{Binding TimePart}"
+                                                   FontSize="10"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   Margin="0,0,6,0"
+                                                   Visibility="{Binding ShowTimePart, Converter={StaticResource BoolVis}}" />
+                                        <TextBlock Text="{Binding VersionNumberPart}"
+                                                   FontSize="10"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TaskCompleteBrush}"
+                                                   Margin="0,0,6,0"
+                                                   Visibility="{Binding ShowVersionNumberPart, Converter={StaticResource BoolVis}}" />
+                                        <TextBlock Text="·"
+                                                   FontSize="10"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   Margin="0,0,6,0"
+                                                   Visibility="{Binding ShowVersionInfoPart, Converter={StaticResource BoolVis}}" />
+                                        <TextBlock Text="{Binding VersionInfoPart}"
+                                                   FontSize="10"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   TextWrapping="Wrap"
+                                                   Visibility="{Binding ShowVersionInfoPart, Converter={StaticResource BoolVis}}" />
+                                    </StackPanel>
                                     <TextBlock x:Name="DisplayTextBlock"
                                                Text="{Binding DisplayText}"
                                                TextWrapping="Wrap"

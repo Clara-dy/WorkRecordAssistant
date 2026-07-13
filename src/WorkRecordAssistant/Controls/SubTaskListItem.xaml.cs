@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using WorkRecordAssistant.Helpers;
 using WorkRecordAssistant.ViewModels;
+using WorkRecordAssistant.Views;
 
 namespace WorkRecordAssistant.Controls;
 
@@ -85,8 +86,29 @@ public partial class SubTaskListItem : UserControl
         {
             { IsCompleted: true } => "单击恢复未完成 · 双击修改 · 左滑删除 · Enter 保存",
             { IsEditing: true } => "Enter 保存 · Shift+Enter 换行 · Esc 取消",
-            _ => "单击完成 · 双击修改 · 左滑删除"
+            _ => "单击完成 · 双击修改 · 左滑删除 · 右键版本号"
         };
+    }
+
+    private void SubTaskHeaderArea_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (ViewModel?.IsEditing == true) return;
+        SubTaskHeaderArea.ContextMenu!.IsOpen = true;
+        e.Handled = true;
+    }
+
+    private async void SetVersionMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null) return;
+
+        var dialog = new VersionEditorDialog(ViewModel.VersionNumber, ViewModel.VersionInfo)
+        {
+            Owner = Window.GetWindow(this)
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        if (Window.GetWindow(this)?.DataContext is MainViewModel vm)
+            await vm.SetSubTaskVersionAsync(ViewModel, dialog.VersionNumber, dialog.VersionInfo);
     }
 
     private void CompleteToggle_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)

@@ -23,4 +23,10 @@ public class WorkRecord
     public DateTime? CompletedAt { get; set; }
 
     public bool IsStarred { get; set; }
+
+    /// <summary>纯数字版本号，不含小数点。</summary>
+    public string? VersionNumber { get; set; }
+
+    /// <summary>版本信息说明。</summary>
+    public string? VersionInfo { get; set; }
 }

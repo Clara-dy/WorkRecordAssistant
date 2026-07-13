@@ -31,7 +31,14 @@
                     CornerRadius="4"
                     Padding="2,4,8,4"
                     Background="Transparent"
-                    Cursor="Hand">
+                    Cursor="Hand"
+                    MouseRightButtonUp="SubTaskHeaderArea_MouseRightButtonUp">
+                <Border.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="设置版本号"
+                                  Click="SetVersionMenuItem_Click" />
+                    </ContextMenu>
+                </Border.ContextMenu>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -76,7 +83,33 @@
                     </Border>
 
                     <Grid Grid.Column="1">
-                        <TextBlock Text="{Binding DisplayText}"
+                        <StackPanel x:Name="DisplayPanel">
+                            <StackPanel Orientation="Horizontal"
+                                        Margin="0,0,0,2"
+                                        Visibility="{Binding ShowTimeVersionHint, Converter={StaticResource BoolVis}}">
+                                <TextBlock Text="{Binding TimePart}"
+                                           FontSize="10"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           Margin="0,0,6,0"
+                                           Visibility="{Binding ShowTimePart, Converter={StaticResource BoolVis}}" />
+                                <TextBlock Text="{Binding VersionNumberPart}"
+                                           FontSize="10"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TaskCompleteBrush}"
+                                           Margin="0,0,6,0"
+                                           Visibility="{Binding ShowVersionNumberPart, Converter={StaticResource BoolVis}}" />
+                                <TextBlock Text="·"
+                                           FontSize="10"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           Margin="0,0,6,0"
+                                           Visibility="{Binding ShowVersionInfoPart, Converter={StaticResource BoolVis}}" />
+                                <TextBlock Text="{Binding VersionInfoPart}"
+                                           FontSize="10"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap"
+                                           Visibility="{Binding ShowVersionInfoPart, Converter={StaticResource BoolVis}}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding DisplayText}"
                                    TextWrapping="Wrap"
                                    FontSize="12"
                                    VerticalAlignment="Center">
@@ -97,6 +130,7 @@
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
+                        </StackPanel>
 
                         <StackPanel>
                             <StackPanel.Style>

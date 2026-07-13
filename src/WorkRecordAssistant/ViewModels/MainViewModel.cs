@@ -72,7 +72,11 @@ public partial class MainViewModel : ObservableObject
     partial void OnShowRecordTimeChanged(bool value)
     {
         foreach (var item in TaskItems.OfType<WorkRecordItemViewModel>())
+        {
             item.ShowTime = value;
+            foreach (var sub in item.SubTasks)
+                sub.ShowTime = value;
+        }
     }
 
     partial void OnIsRecordEditingChanged(bool value) => OnPropertyChanged(nameof(IsEditing));
@@ -168,22 +172,57 @@ public partial class MainViewModel : ObservableObject
         await LoadTasksAsync();
     }
 
-    [RelayCommand]
-    private void CopyToday()
+    public void CopyTasks(CopyTaskScope scope)
     {
         var lines = new List<string>();
-        foreach (var record in TaskItems.OfType<WorkRecordItemViewModel>().Where(r => r.IsCompleted))
+        foreach (var record in TaskItems.OfType<WorkRecordItemViewModel>())
         {
-            lines.Add(record.Content);
-            foreach (var sub in record.SubTasks.Where(s => s.IsCompleted))
-                lines.Add($"  - {sub.Content}");
+            if (scope == CopyTaskScope.CompletedOnly && !record.IsCompleted)
+                continue;
+
+            lines.Add(VersionDisplayHelper.BuildCopyLine(record.Content, record.VersionNumber, record.VersionInfo));
+            foreach (var sub in record.SubTasks)
+            {
+                if (scope == CopyTaskScope.CompletedOnly && !sub.IsCompleted)
+                    continue;
+
+                lines.Add(VersionDisplayHelper.BuildCopyLine(
+                    sub.Content, sub.VersionNumber, sub.VersionInfo, "  - "));
+            }
         }
 
-        var text = CopyTemplateHelper.BuildPlainCopyText(lines);
-        if (string.IsNullOrEmpty(text)) return;
+        if (lines.Count == 0)
+        {
+            ShowStatus(scope == CopyTaskScope.All ? "没有可复制的任务" : "没有可复制的已完成任务");
+            return;
+        }
 
-        ClipboardService.CopyText(text);
-        ShowStatus("已复制到剪贴板");
+        var text = string.Join('\n', lines);
+        if (!ClipboardService.CopyText(text))
+        {
+            ShowStatus("复制失败，请重试");
+            return;
+        }
+
+        ShowStatus(scope == CopyTaskScope.All ? "已复制全部任务" : "已复制已完成任务");
+    }
+
+    public async Task SetRecordVersionAsync(
+        WorkRecordItemViewModel record, string? versionNumber, string? versionInfo)
+    {
+        await _dataService.UpdateRecordVersionAsync(record.Id, versionNumber, versionInfo);
+        record.VersionNumber = versionNumber;
+        record.VersionInfo = versionInfo;
+        ShowStatus("已更新版本号");
+    }
+
+    public async Task SetSubTaskVersionAsync(
+        SubTaskItemViewModel sub, string? versionNumber, string? versionInfo)
+    {
+        await _dataService.UpdateSubTaskVersionAsync(sub.Id, versionNumber, versionInfo);
+        sub.VersionNumber = versionNumber;
+        sub.VersionInfo = versionInfo;
+        ShowStatus("已更新子任务版本号");
     }
 
     public async Task AddSubTaskAsync(IRecordListItemViewModel parent)
@@ -257,11 +296,12 @@ public partial class MainViewModel : ObservableObject
 
     private static void PopulateSubTasks(
         IRecordListItemViewModel item,
-        IReadOnlyList<TaskSubItem> subTasks)
+        IReadOnlyList<TaskSubItem> subTasks,
+        bool showTime)
     {
         item.SubTasks.Clear();
         foreach (var sub in subTasks)
-            item.SubTasks.Add(new SubTaskItemViewModel(sub));
+            item.SubTasks.Add(new SubTaskItemViewModel(sub, showTime));
     }
 
     public async Task CompleteRecordAsync(WorkRecordItemViewModel item)
@@ -329,7 +369,7 @@ public partial class MainViewModel : ObservableObject
         {
             var vm = CreateRecordViewModel(record);
             if (subTasks.TryGetValue(record.Id, out var subs))
-                PopulateSubTasks(vm, subs);
+                PopulateSubTasks(vm, subs, ShowRecordTime);
             StarredTasks.Add(vm);
         }
 
@@ -346,7 +386,7 @@ public partial class MainViewModel : ObservableObject
         {
             var vm = CreateRecordViewModel(record);
             if (subTasks.TryGetValue(record.Id, out var subs))
-                PopulateSubTasks(vm, subs);
+                PopulateSubTasks(vm, subs, ShowRecordTime);
             Records.Add(vm);
         }
 

@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using WorkRecordAssistant.Helpers;
 using WorkRecordAssistant.ViewModels;
+using WorkRecordAssistant.Views;
 
 namespace WorkRecordAssistant.Controls;
 
@@ -89,9 +90,9 @@ public partial class RecordListItem : UserControl
     {
         TaskHeaderArea.ToolTip = ViewModel switch
         {
-            { IsCompleted: true } => "单击恢复未完成 · 双击修改 · 左滑删除 · 右键星级",
-            { IsEditing: false } => "单击完成 · 双击修改 · 左滑删除 · 右键星级",
-            _ => "双击修改 · 左滑删除 · 右键星级"
+            { IsCompleted: true } => "单击恢复未完成 · 双击修改 · 左滑删除 · 右键星级/版本号",
+            { IsEditing: false } => "单击完成 · 双击修改 · 左滑删除 · 右键星级/版本号",
+            _ => "双击修改 · 左滑删除 · 右键星级/版本号"
         };
     }
 
@@ -198,6 +199,20 @@ public partial class RecordListItem : UserControl
         if (ViewModel is null) return;
         if (Window.GetWindow(this)?.DataContext is MainViewModel vm)
             await vm.SetRecordStarredAsync(ViewModel, false);
+    }
+
+    private async void SetVersionMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not WorkRecordItemViewModel record) return;
+
+        var dialog = new VersionEditorDialog(record.VersionNumber, record.VersionInfo)
+        {
+            Owner = Window.GetWindow(this)
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        if (Window.GetWindow(this)?.DataContext is MainViewModel vm)
+            await vm.SetRecordVersionAsync(record, dialog.VersionNumber, dialog.VersionInfo);
     }
 
     private void TaskContextMenu_Opened(object sender, RoutedEventArgs e)

@@ -83,6 +83,7 @@ public sealed class SqliteDataService : IDataService
             CREATE INDEX IF NOT EXISTS IX_TaskSubItems_Parent ON TaskSubItems(ParentType, ParentId);
             """;
         await ExecuteNonQueryAsync(connection, createSubTasks);
+        await MigrateVersionColumnsAsync(connection);
 
         await SeedDefaultButtonsIfEmptyAsync(connection);
     }
@@ -95,7 +96,7 @@ public sealed class SqliteDataService : IDataService
         var records = new List<WorkRecord>();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred
+            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred, VersionNumber, VersionInfo
             FROM WorkRecords
             WHERE Date = $date
             ORDER BY SortOrder, CreatedAt
@@ -120,7 +121,7 @@ public sealed class SqliteDataService : IDataService
         var records = new List<WorkRecord>();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred
+            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred, VersionNumber, VersionInfo
             FROM WorkRecords
             WHERE (
                 (IsCompleted = 0
@@ -249,6 +250,25 @@ public sealed class SqliteDataService : IDataService
             WHERE Id = $id
             """;
         command.Parameters.AddWithValue("$content", content.Trim());
+        command.Parameters.AddWithValue("$updatedAt", now);
+        command.Parameters.AddWithValue("$id", id);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task UpdateRecordVersionAsync(int id, string? versionNumber, string? versionInfo)
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        var now = DateTime.Now.ToString("O");
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE WorkRecords
+            SET VersionNumber = $versionNumber, VersionInfo = $versionInfo, UpdatedAt = $updatedAt
+            WHERE Id = $id
+            """;
+        command.Parameters.AddWithValue("$versionNumber", string.IsNullOrWhiteSpace(versionNumber) ? DBNull.Value : versionNumber.Trim());
+        command.Parameters.AddWithValue("$versionInfo", string.IsNullOrWhiteSpace(versionInfo) ? DBNull.Value : versionInfo.Trim());
         command.Parameters.AddWithValue("$updatedAt", now);
         command.Parameters.AddWithValue("$id", id);
         await command.ExecuteNonQueryAsync();
@@ -486,7 +506,7 @@ public sealed class SqliteDataService : IDataService
         var records = new List<WorkRecord>();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred
+            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred, VersionNumber, VersionInfo
             FROM WorkRecords
             WHERE IsCompleted = 1
             ORDER BY CompletedAt DESC, CreatedAt DESC
@@ -512,7 +532,7 @@ public sealed class SqliteDataService : IDataService
         var placeholders = string.Join(", ", ids.Select((_, i) => $"$id{i}"));
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
-            SELECT Id, ParentType, ParentId, Content, IsCompleted, CreatedAt, UpdatedAt, SortOrder
+            SELECT Id, ParentType, ParentId, Content, IsCompleted, CreatedAt, UpdatedAt, SortOrder, VersionNumber, VersionInfo
             FROM TaskSubItems
             WHERE ParentType = $parentType AND ParentId IN ({placeholders})
             ORDER BY IsCompleted, SortOrder, CreatedAt
@@ -580,6 +600,25 @@ public sealed class SqliteDataService : IDataService
             WHERE Id = $id
             """;
         command.Parameters.AddWithValue("$content", content.Trim());
+        command.Parameters.AddWithValue("$updatedAt", now);
+        command.Parameters.AddWithValue("$id", id);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task UpdateSubTaskVersionAsync(int id, string? versionNumber, string? versionInfo)
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        var now = DateTime.Now.ToString("O");
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE TaskSubItems
+            SET VersionNumber = $versionNumber, VersionInfo = $versionInfo, UpdatedAt = $updatedAt
+            WHERE Id = $id
+            """;
+        command.Parameters.AddWithValue("$versionNumber", string.IsNullOrWhiteSpace(versionNumber) ? DBNull.Value : versionNumber.Trim());
+        command.Parameters.AddWithValue("$versionInfo", string.IsNullOrWhiteSpace(versionInfo) ? DBNull.Value : versionInfo.Trim());
         command.Parameters.AddWithValue("$updatedAt", now);
         command.Parameters.AddWithValue("$id", id);
         await command.ExecuteNonQueryAsync();
@@ -896,7 +935,7 @@ public sealed class SqliteDataService : IDataService
         var records = new List<WorkRecord>();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred
+            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred, VersionNumber, VersionInfo
             FROM WorkRecords
             ORDER BY Date, SortOrder, CreatedAt
             """;
@@ -940,7 +979,7 @@ public sealed class SqliteDataService : IDataService
         var items = new List<TaskSubItem>();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, ParentType, ParentId, Content, IsCompleted, CreatedAt, UpdatedAt, SortOrder
+            SELECT Id, ParentType, ParentId, Content, IsCompleted, CreatedAt, UpdatedAt, SortOrder, VersionNumber, VersionInfo
             FROM TaskSubItems
             ORDER BY ParentType, ParentId, SortOrder, CreatedAt
             """;
@@ -972,6 +1011,24 @@ public sealed class SqliteDataService : IDataService
         {
             await ExecuteNonQueryAsync(connection,
                 "ALTER TABLE WorkRecords ADD COLUMN IsStarred INTEGER NOT NULL DEFAULT 0;");
+        }
+    }
+
+    private static async Task MigrateVersionColumnsAsync(SqliteConnection connection)
+    {
+        foreach (var table in new[] { "WorkRecords", "TaskSubItems" })
+        {
+            if (!await ColumnExistsAsync(connection, table, "VersionNumber"))
+            {
+                await ExecuteNonQueryAsync(connection,
+                    $"ALTER TABLE {table} ADD COLUMN VersionNumber TEXT;");
+            }
+
+            if (!await ColumnExistsAsync(connection, table, "VersionInfo"))
+            {
+                await ExecuteNonQueryAsync(connection,
+                    $"ALTER TABLE {table} ADD COLUMN VersionInfo TEXT;");
+            }
         }
     }
 
@@ -1088,7 +1145,9 @@ public sealed class SqliteDataService : IDataService
         SortOrder = reader.GetInt32(5),
         IsCompleted = reader.GetInt32(6) == 1,
         CompletedAt = reader.IsDBNull(7) ? null : DateTime.Parse(reader.GetString(7)),
-        IsStarred = reader.FieldCount > 8 && !reader.IsDBNull(8) && reader.GetInt32(8) == 1
+        IsStarred = reader.FieldCount > 8 && !reader.IsDBNull(8) && reader.GetInt32(8) == 1,
+        VersionNumber = reader.FieldCount > 9 && !reader.IsDBNull(9) ? reader.GetString(9) : null,
+        VersionInfo = reader.FieldCount > 10 && !reader.IsDBNull(10) ? reader.GetString(10) : null
     };
 
     private static TaskSubItem MapSubTask(SqliteDataReader reader) => new()
@@ -1100,7 +1159,9 @@ public sealed class SqliteDataService : IDataService
         IsCompleted = reader.GetInt32(4) == 1,
         CreatedAt = DateTime.Parse(reader.GetString(5)),
         UpdatedAt = DateTime.Parse(reader.GetString(6)),
-        SortOrder = reader.GetInt32(7)
+        SortOrder = reader.GetInt32(7),
+        VersionNumber = reader.FieldCount > 8 && !reader.IsDBNull(8) ? reader.GetString(8) : null,
+        VersionInfo = reader.FieldCount > 9 && !reader.IsDBNull(9) ? reader.GetString(9) : null
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new()

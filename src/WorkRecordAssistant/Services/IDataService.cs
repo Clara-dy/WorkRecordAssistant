@@ -23,6 +23,8 @@ public interface IDataService
 
     Task UpdateRecordContentAsync(int id, string content);
 
+    Task UpdateRecordVersionAsync(int id, string? versionNumber, string? versionInfo);
+
     Task ReorderRecordsAsync(IReadOnlyList<int> orderedIds);
 
     Task DeleteRecordAsync(int id);
@@ -51,6 +53,8 @@ public interface IDataService
     Task<Models.TaskSubItem> AddSubTaskAsync(Models.TaskParentType parentType, int parentId, string content);
 
     Task UpdateSubTaskContentAsync(int id, string content);
+
+    Task UpdateSubTaskVersionAsync(int id, string? versionNumber, string? versionInfo);
 
     Task CompleteSubTaskAsync(int id);
 
