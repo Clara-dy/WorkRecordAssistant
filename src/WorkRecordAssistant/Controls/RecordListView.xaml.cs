@@ -9,19 +9,18 @@ namespace WorkRecordAssistant.Controls;
 
 public partial class RecordListView : UserControl
 {
-    public static readonly DependencyProperty RecordsProperty =
-        DependencyProperty.Register(nameof(Records), typeof(ObservableCollection<WorkRecordItemViewModel>),
+    public static readonly DependencyProperty TaskItemsProperty =
+        DependencyProperty.Register(nameof(TaskItems), typeof(ObservableCollection<IRecordListItemViewModel>),
             typeof(RecordListView), new PropertyMetadata(null));
 
-    public static readonly DependencyProperty LongTermTasksProperty =
-        DependencyProperty.Register(nameof(LongTermTasks), typeof(ObservableCollection<LongTermTaskItemViewModel>),
-            typeof(RecordListView), new PropertyMetadata(null));
+    public static readonly DependencyProperty StarredTaskCountProperty =
+        DependencyProperty.Register(nameof(StarredTaskCount), typeof(int),
+            typeof(RecordListView), new PropertyMetadata(0));
 
-    private enum ReorderTarget { None, Daily, LongTerm }
+    private enum ReorderTarget { None, Normal, Starred }
 
     private IRecordListItemViewModel? _dragItem;
     private RecordListItem? _dragSourceItem;
-    private ListBox? _activeListBox;
     private ReorderTarget _reorderTarget = ReorderTarget.None;
     private int _insertIndex = -1;
     private bool _isReordering;
@@ -31,16 +30,16 @@ public partial class RecordListView : UserControl
         InitializeComponent();
     }
 
-    public ObservableCollection<WorkRecordItemViewModel>? Records
+    public ObservableCollection<IRecordListItemViewModel>? TaskItems
     {
-        get => (ObservableCollection<WorkRecordItemViewModel>?)GetValue(RecordsProperty);
-        set => SetValue(RecordsProperty, value);
+        get => (ObservableCollection<IRecordListItemViewModel>?)GetValue(TaskItemsProperty);
+        set => SetValue(TaskItemsProperty, value);
     }
 
-    public ObservableCollection<LongTermTaskItemViewModel>? LongTermTasks
+    public int StarredTaskCount
     {
-        get => (ObservableCollection<LongTermTaskItemViewModel>?)GetValue(LongTermTasksProperty);
-        set => SetValue(LongTermTasksProperty, value);
+        get => (int)GetValue(StarredTaskCountProperty);
+        set => SetValue(StarredTaskCountProperty, value);
     }
 
     public event EventHandler<IRecordListItemViewModel>? DeleteRequested;
@@ -56,6 +55,7 @@ public partial class RecordListView : UserControl
         item.CompleteRequested += Item_CompleteRequested;
         item.ReorderDragStarted += Item_ReorderDragStarted;
         item.EditingChanged += Item_EditingChanged;
+        item.SubTaskEditingChanged += Item_SubTaskEditingChanged;
     }
 
     private void RecordListItem_Unloaded(object sender, RoutedEventArgs e)
@@ -66,6 +66,7 @@ public partial class RecordListView : UserControl
         item.CompleteRequested -= Item_CompleteRequested;
         item.ReorderDragStarted -= Item_ReorderDragStarted;
         item.EditingChanged -= Item_EditingChanged;
+        item.SubTaskEditingChanged -= Item_SubTaskEditingChanged;
     }
 
     private void Item_DeleteRequested(object? sender, IRecordListItemViewModel e) =>
@@ -77,26 +78,18 @@ public partial class RecordListView : UserControl
     private void Item_EditingChanged(object? sender, bool editing) =>
         RecordEditingChanged?.Invoke(this, editing);
 
+    private void Item_SubTaskEditingChanged(object? sender, bool editing) =>
+        RecordEditingChanged?.Invoke(this, editing);
+
     private void Item_ReorderDragStarted(object? sender, IRecordListItemViewModel e)
     {
-        if (sender is not RecordListItem item) return;
+        if (sender is not RecordListItem item || TaskItems is null) return;
 
         _dragItem = e;
         _dragSourceItem = item;
         _isReordering = true;
-
-        if (e.IsLongTermTask)
-        {
-            _reorderTarget = ReorderTarget.LongTerm;
-            _activeListBox = LongTermListBox;
-            _insertIndex = LongTermTasks?.IndexOf((LongTermTaskItemViewModel)e) ?? -1;
-        }
-        else
-        {
-            _reorderTarget = ReorderTarget.Daily;
-            _activeListBox = RecordListBox;
-            _insertIndex = Records?.IndexOf((WorkRecordItemViewModel)e) ?? -1;
-        }
+        _reorderTarget = e.IsStarred ? ReorderTarget.Starred : ReorderTarget.Normal;
+        _insertIndex = TaskItems.IndexOf(e);
 
         InsertIndicator.Visibility = Visibility.Visible;
         ShowInsertIndicator(_insertIndex >= 0 ? _insertIndex : 0);
@@ -108,14 +101,14 @@ public partial class RecordListView : UserControl
 
     private void RecordListView_MouseMove(object sender, MouseEventArgs e)
     {
-        if (!_isReordering || _activeListBox is null) return;
+        if (!_isReordering) return;
 
         var screenPoint = PointToScreen(e.GetPosition(this));
-        var index = GetInsertIndex(_activeListBox, screenPoint);
+        var index = GetInsertIndex(TaskListBox, screenPoint);
         if (index < 0) return;
 
-        _insertIndex = index;
-        ShowInsertIndicator(index);
+        _insertIndex = ClampInsertIndex(index);
+        ShowInsertIndicator(_insertIndex);
     }
 
     private async void RecordListView_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -124,35 +117,20 @@ public partial class RecordListView : UserControl
 
         StopReorderTracking();
 
-        if (_dragItem is null || _insertIndex < 0) goto Cleanup;
+        if (_dragItem is null || TaskItems is null || _insertIndex < 0) goto Cleanup;
 
-        if (_reorderTarget == ReorderTarget.LongTerm && LongTermTasks is not null)
+        var oldIndex = TaskItems.IndexOf(_dragItem);
+        var newIndex = ClampInsertIndex(_insertIndex);
+        if (oldIndex >= 0 && oldIndex != newIndex)
         {
-            var collection = LongTermTasks;
-            var item = (LongTermTaskItemViewModel)_dragItem;
-            var oldIndex = collection.IndexOf(item);
-            var newIndex = _insertIndex;
-            if (oldIndex >= 0 && oldIndex != newIndex)
-            {
-                if (newIndex > oldIndex) newIndex--;
-                collection.Move(oldIndex, newIndex);
+            if (newIndex > oldIndex) newIndex--;
+            TaskItems.Move(oldIndex, newIndex);
 
-                if (Window.GetWindow(this)?.DataContext is MainViewModel vm)
-                    await vm.SaveLongTermTaskOrderAsync();
-            }
-        }
-        else if (_reorderTarget == ReorderTarget.Daily && Records is not null)
-        {
-            var collection = Records;
-            var item = (WorkRecordItemViewModel)_dragItem;
-            var oldIndex = collection.IndexOf(item);
-            var newIndex = _insertIndex;
-            if (oldIndex >= 0 && oldIndex != newIndex)
+            if (Window.GetWindow(this)?.DataContext is MainViewModel vm)
             {
-                if (newIndex > oldIndex) newIndex--;
-                collection.Move(oldIndex, newIndex);
-
-                if (Window.GetWindow(this)?.DataContext is MainViewModel vm)
+                if (_reorderTarget == ReorderTarget.Starred)
+                    await vm.SaveStarredOrderAsync();
+                else
                     await vm.SaveRecordOrderAsync();
             }
         }
@@ -161,9 +139,22 @@ public partial class RecordListView : UserControl
         _dragSourceItem?.ResetInteraction();
         _dragItem = null;
         _dragSourceItem = null;
-        _activeListBox = null;
         _reorderTarget = ReorderTarget.None;
         _insertIndex = -1;
+    }
+
+    private int ClampInsertIndex(int index)
+    {
+        if (TaskItems is null || TaskItems.Count == 0) return 0;
+
+        var starredCount = StarredTaskCount;
+        if (_reorderTarget == ReorderTarget.Starred)
+            return Math.Clamp(index, 0, starredCount);
+
+        var normalStart = starredCount;
+        var normalEnd = TaskItems.Count;
+        if (normalEnd <= normalStart) return normalStart;
+        return Math.Clamp(index, normalStart, normalEnd);
     }
 
     private void StopReorderTracking()
@@ -201,21 +192,21 @@ public partial class RecordListView : UserControl
 
     private void ShowInsertIndicator(int index)
     {
-        if (_activeListBox is null || _activeListBox.Items.Count == 0) return;
+        if (TaskListBox.Items.Count == 0) return;
 
         FrameworkElement? reference;
         double y;
 
-        if (index >= _activeListBox.Items.Count)
+        if (index >= TaskListBox.Items.Count)
         {
-            reference = _activeListBox.ItemContainerGenerator
-                .ContainerFromIndex(_activeListBox.Items.Count - 1) as FrameworkElement;
+            reference = TaskListBox.ItemContainerGenerator
+                .ContainerFromIndex(TaskListBox.Items.Count - 1) as FrameworkElement;
             if (reference is null) return;
             y = reference.TransformToAncestor(this).Transform(new Point(0, reference.ActualHeight)).Y;
         }
         else
         {
-            reference = _activeListBox.ItemContainerGenerator.ContainerFromIndex(index) as FrameworkElement;
+            reference = TaskListBox.ItemContainerGenerator.ContainerFromIndex(index) as FrameworkElement;
             if (reference is null) return;
             y = reference.TransformToAncestor(this).Transform(new Point(0, 0)).Y;
         }

@@ -197,14 +197,33 @@ public partial class MainWindow : Window
     private void InputBox_LostFocus(object sender, RoutedEventArgs e) =>
         _viewModel.IsInputFocused = false;
 
-    private async void InputBox_KeyDown(object sender, KeyEventArgs e)
+    private async void InputBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter && !Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+        if (e.Key == Key.Escape)
+        {
+            _viewModel.IsInputPanelVisible = false;
+            _viewModel.InputText = string.Empty;
+            e.Handled = true;
+            return;
+        }
+
+        if (IsSubmitEnter(e))
         {
             e.Handled = true;
+            InputBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
             if (_viewModel.AddRecordCommand.CanExecute(null))
                 await _viewModel.AddRecordCommand.ExecuteAsync(null);
         }
+    }
+
+    private static bool IsSubmitEnter(KeyEventArgs e) =>
+        (e.Key == Key.Enter || e.Key == Key.Return)
+        && !Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+
+    private void InputPanel_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (sender is UIElement { IsVisible: true })
+            InputBox.Focus();
     }
 
     private void DateButton_Click(object sender, RoutedEventArgs e)
@@ -223,24 +242,20 @@ public partial class MainWindow : Window
 
         _viewModel.ShowRecordTime = _settingsService.Current.ShowRecordTime;
         _ = _viewModel.LoadQuickButtonsAsync();
-        _ = _viewModel.LoadLongTermTasksAsync();
-        _ = _viewModel.LoadRecordsAsync();
+        _ = _viewModel.LoadTasksAsync();
     }
 
     private void Minimize_Click(object sender, RoutedEventArgs e) =>
         WindowState = WindowState.Minimized;
 
     private void Close_Click(object sender, RoutedEventArgs e) =>
-        Close();
+        WindowState = WindowState.Minimized;
 
     private async void RecordList_DeleteRequested(object? sender, IRecordListItemViewModel e) =>
         await _viewModel.DeleteRecordItemAsync(e);
 
-    private async void RecordList_CompleteRequested(object? sender, IRecordListItemViewModel e)
-    {
-        if (e is LongTermTaskItemViewModel task)
-            await _viewModel.CompleteLongTermTaskAsync(task);
-    }
+    private async void RecordList_CompleteRequested(object? sender, IRecordListItemViewModel e) =>
+        await _viewModel.CompleteRecordItemAsync(e);
 
     private void RecordList_OpenArchiveRequested(object? sender, EventArgs e)
     {

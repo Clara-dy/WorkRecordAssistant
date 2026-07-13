@@ -21,9 +21,11 @@ public partial class MainViewModel : ObservableObject
         _settingsService = settingsService;
     }
 
+    public ObservableCollection<WorkRecordItemViewModel> StarredTasks { get; } = [];
+
     public ObservableCollection<WorkRecordItemViewModel> Records { get; } = [];
 
-    public ObservableCollection<LongTermTaskItemViewModel> LongTermTasks { get; } = [];
+    public ObservableCollection<IRecordListItemViewModel> TaskItems { get; } = [];
 
     public ObservableCollection<QuickButtonViewModel> QuickButtons { get; } = [];
 
@@ -43,54 +45,54 @@ public partial class MainViewModel : ObservableObject
     private bool _isRecordEditing;
 
     [ObservableProperty]
+    private bool _isInputPanelVisible;
+
+    [ObservableProperty]
     private string _statusMessage = string.Empty;
 
     public string DateDisplay => SelectedDate.ToString("yyyy-MM-dd");
 
     public bool IsEditing => IsInputFocused || IsRecordEditing;
 
+    public int StarredTaskCount => StarredTasks.Count;
+
     public async Task InitializeAsync()
     {
         ShowRecordTime = _settingsService.Current.ShowRecordTime;
         await LoadQuickButtonsAsync();
-        await LoadLongTermTasksAsync();
-        await LoadRecordsAsync();
+        await LoadTasksAsync();
     }
 
     partial void OnSelectedDateChanged(DateTime value)
     {
         OnPropertyChanged(nameof(DateDisplay));
-        _ = LoadRecordsAsync();
+        _ = LoadTasksAsync();
     }
 
     partial void OnShowRecordTimeChanged(bool value)
     {
-        foreach (var record in Records)
-            record.ShowTime = value;
+        foreach (var item in TaskItems.OfType<WorkRecordItemViewModel>())
+            item.ShowTime = value;
     }
 
     partial void OnIsRecordEditingChanged(bool value) => OnPropertyChanged(nameof(IsEditing));
+
+    [RelayCommand]
+    private void ShowTaskInput()
+    {
+        IsInputPanelVisible = true;
+    }
 
     [RelayCommand]
     private async Task AddRecordAsync()
     {
         if (string.IsNullOrWhiteSpace(InputText)) return;
 
-        var record = await _dataService.AddRecordAsync(DateDisplay, InputText);
+        await _dataService.AddRecordAsync(DateDisplay, InputText);
         InputText = string.Empty;
-        await LoadRecordsAsync();
-        ShowStatus("已添加记录");
-    }
-
-    [RelayCommand]
-    private async Task AddLongTermTaskAsync()
-    {
-        if (string.IsNullOrWhiteSpace(InputText)) return;
-
-        await _dataService.AddLongTermTaskAsync(InputText);
-        InputText = string.Empty;
-        await LoadLongTermTasksAsync();
-        ShowStatus("已添加长期任务");
+        IsInputPanelVisible = false;
+        await LoadTasksAsync();
+        ShowStatus("已添加任务");
     }
 
     public async Task UpdateRecordAsync(WorkRecordItemViewModel item)
@@ -105,47 +107,39 @@ public partial class MainViewModel : ObservableObject
         ShowStatus("已更新");
     }
 
-    public async Task UpdateLongTermTaskAsync(LongTermTaskItemViewModel item)
-    {
-        if (string.IsNullOrWhiteSpace(item.Content))
-        {
-            await DeleteLongTermTaskAsync(item);
-            return;
-        }
-
-        await _dataService.UpdateLongTermTaskContentAsync(item.Id, item.Content);
-        ShowStatus("已更新长期任务");
-    }
-
     public async Task UpdateRecordItemAsync(IRecordListItemViewModel item)
     {
-        switch (item)
-        {
-            case WorkRecordItemViewModel record:
-                await UpdateRecordAsync(record);
-                break;
-            case LongTermTaskItemViewModel task:
-                await UpdateLongTermTaskAsync(task);
-                break;
-        }
+        if (item is WorkRecordItemViewModel record)
+            await UpdateRecordAsync(record);
     }
 
     public async Task SaveRecordOrderAsync()
     {
-        var ids = Records.Select(r => r.Id).ToList();
-        await _dataService.ReorderRecordsAsync(DateDisplay, ids);
-        for (var i = 0; i < Records.Count; i++)
-            Records[i].SortOrder = i;
+        var normalItems = TaskItems.OfType<WorkRecordItemViewModel>().Where(i => !i.IsStarred).ToList();
+        Records.Clear();
+        foreach (var item in normalItems)
+            Records.Add(item);
+
+        var ids = normalItems.Select(r => r.Id).ToList();
+        await _dataService.ReorderRecordsAsync(ids);
+        for (var i = 0; i < normalItems.Count; i++)
+            normalItems[i].SortOrder = i;
         ShowStatus("已更新排序");
     }
 
-    public async Task SaveLongTermTaskOrderAsync()
+    public async Task SaveStarredOrderAsync()
     {
-        var ids = LongTermTasks.Select(t => t.Id).ToList();
-        await _dataService.ReorderLongTermTasksAsync(ids);
-        for (var i = 0; i < LongTermTasks.Count; i++)
-            LongTermTasks[i].SortOrder = i;
-        ShowStatus("已更新长期任务排序");
+        var starredItems = TaskItems.OfType<WorkRecordItemViewModel>().Where(i => i.IsStarred).ToList();
+        StarredTasks.Clear();
+        foreach (var item in starredItems)
+            StarredTasks.Add(item);
+
+        var ids = starredItems.Select(r => r.Id).ToList();
+        await _dataService.ReorderRecordsAsync(ids);
+        for (var i = 0; i < starredItems.Count; i++)
+            starredItems[i].SortOrder = i;
+        OnPropertyChanged(nameof(StarredTaskCount));
+        ShowStatus("已更新星级任务排序");
     }
 
     [RelayCommand]
@@ -153,49 +147,143 @@ public partial class MainViewModel : ObservableObject
     {
         if (item is null) return;
         await _dataService.DeleteRecordAsync(item.Id);
+        StarredTasks.Remove(item);
         Records.Remove(item);
+        RefreshTaskItems();
         ShowStatus("已删除");
-    }
-
-    [RelayCommand]
-    private async Task DeleteLongTermTaskAsync(LongTermTaskItemViewModel? item)
-    {
-        if (item is null) return;
-        await _dataService.DeleteLongTermTaskAsync(item.Id);
-        LongTermTasks.Remove(item);
-        ShowStatus("已删除长期任务");
     }
 
     public async Task DeleteRecordItemAsync(IRecordListItemViewModel item)
     {
-        switch (item)
-        {
-            case WorkRecordItemViewModel record:
-                if (DeleteRecordCommand.CanExecute(record))
-                    await DeleteRecordCommand.ExecuteAsync(record);
-                break;
-            case LongTermTaskItemViewModel task:
-                if (DeleteLongTermTaskCommand.CanExecute(task))
-                    await DeleteLongTermTaskCommand.ExecuteAsync(task);
-                break;
-        }
+        if (item is WorkRecordItemViewModel record && DeleteRecordCommand.CanExecute(record))
+            await DeleteRecordCommand.ExecuteAsync(record);
+    }
+
+    public async Task SetRecordStarredAsync(IRecordListItemViewModel item, bool isStarred)
+    {
+        if (item is not WorkRecordItemViewModel record) return;
+
+        await _dataService.SetRecordStarredAsync(record.Id, isStarred);
+        ShowStatus(isStarred ? "已标注为星级任务" : "已取消星级");
+        await LoadTasksAsync();
     }
 
     [RelayCommand]
     private void CopyToday()
     {
-        var text = CopyTemplateHelper.BuildPlainCopyText(Records.Select(r => r.Content));
+        var lines = new List<string>();
+        foreach (var record in TaskItems.OfType<WorkRecordItemViewModel>().Where(r => r.IsCompleted))
+        {
+            lines.Add(record.Content);
+            foreach (var sub in record.SubTasks.Where(s => s.IsCompleted))
+                lines.Add($"  - {sub.Content}");
+        }
+
+        var text = CopyTemplateHelper.BuildPlainCopyText(lines);
         if (string.IsNullOrEmpty(text)) return;
 
         ClipboardService.CopyText(text);
         ShowStatus("已复制到剪贴板");
     }
 
-    public async Task CompleteLongTermTaskAsync(LongTermTaskItemViewModel item)
+    public async Task AddSubTaskAsync(IRecordListItemViewModel parent)
     {
-        await _dataService.CompleteLongTermTaskAsync(item.Id);
-        LongTermTasks.Remove(item);
-        ShowStatus("长期任务已结束并归档");
+        if (string.IsNullOrWhiteSpace(parent.NewSubTaskText)) return;
+
+        var sub = await _dataService.AddSubTaskAsync(TaskParentType.WorkRecord, parent.Id, parent.NewSubTaskText);
+        parent.SubTasks.Add(new SubTaskItemViewModel(sub));
+        parent.NewSubTaskText = string.Empty;
+        parent.IsAddingSubTask = false;
+        ShowStatus("已添加子任务");
+    }
+
+    public async Task ToggleSubTaskCompletionAsync(SubTaskItemViewModel sub, IRecordListItemViewModel parent)
+    {
+        if (sub.IsCompleted)
+        {
+            await _dataService.UncompleteSubTaskAsync(sub.Id);
+            sub.IsCompleted = false;
+            ShowStatus("子任务已恢复为未完成");
+        }
+        else
+        {
+            await _dataService.CompleteSubTaskAsync(sub.Id);
+            sub.IsCompleted = true;
+            ShowStatus("子任务已完成");
+        }
+
+        SortSubTasks(parent.SubTasks);
+    }
+
+    public async Task UpdateSubTaskAsync(SubTaskItemViewModel sub)
+    {
+        if (string.IsNullOrWhiteSpace(sub.Content))
+        {
+            var parent = FindParentOfSubTask(sub);
+            if (parent is not null)
+                await DeleteSubTaskAsync(sub, parent);
+            return;
+        }
+
+        await _dataService.UpdateSubTaskContentAsync(sub.Id, sub.Content);
+        ShowStatus("已更新子任务");
+    }
+
+    public async Task DeleteSubTaskAsync(SubTaskItemViewModel sub, IRecordListItemViewModel parent)
+    {
+        await _dataService.DeleteSubTaskAsync(sub.Id);
+        parent.SubTasks.Remove(sub);
+        ShowStatus("已删除子任务");
+    }
+
+    private IRecordListItemViewModel? FindParentOfSubTask(SubTaskItemViewModel sub)
+    {
+        foreach (var item in TaskItems)
+        {
+            if (item.SubTasks.Contains(sub))
+                return item;
+        }
+
+        return null;
+    }
+
+    private static void SortSubTasks(ObservableCollection<SubTaskItemViewModel> subTasks)
+    {
+        var sorted = subTasks.OrderBy(s => s.IsCompleted).ThenBy(s => s.SortOrder).ToList();
+        subTasks.Clear();
+        foreach (var sub in sorted)
+            subTasks.Add(sub);
+    }
+
+    private static void PopulateSubTasks(
+        IRecordListItemViewModel item,
+        IReadOnlyList<TaskSubItem> subTasks)
+    {
+        item.SubTasks.Clear();
+        foreach (var sub in subTasks)
+            item.SubTasks.Add(new SubTaskItemViewModel(sub));
+    }
+
+    public async Task CompleteRecordAsync(WorkRecordItemViewModel item)
+    {
+        if (item.IsCompleted)
+        {
+            await _dataService.UncompleteRecordAsync(item.Id);
+            ShowStatus("已恢复为未完成");
+        }
+        else
+        {
+            await _dataService.CompleteRecordAsync(item.Id, DateDisplay);
+            ShowStatus("任务已完成");
+        }
+
+        await LoadTasksAsync();
+    }
+
+    public async Task CompleteRecordItemAsync(IRecordListItemViewModel item)
+    {
+        if (item is WorkRecordItemViewModel record)
+            await CompleteRecordAsync(record);
     }
 
     [RelayCommand]
@@ -222,39 +310,65 @@ public partial class MainViewModel : ObservableObject
             ? RecordSortOrder.OldestFirst
             : RecordSortOrder.NewestFirst;
         await _settingsService.SaveAsync();
-        await LoadRecordsAsync();
+        await LoadTasksAsync();
         ShowStatus(settings.DefaultSortOrder == RecordSortOrder.NewestFirst ? "最新在前" : "最旧在前");
     }
 
-    public async Task LoadLongTermTasksAsync()
+    public async Task LoadTasksAsync()
     {
-        var tasks = await _dataService.GetLongTermTasksAsync();
+        var allRecords = await _dataService.GetRecordsForDisplayAsync(DateDisplay);
+        var starred = allRecords.Where(r => r.IsStarred).ToList();
+        var records = allRecords.Where(r => !r.IsStarred).ToList();
+        var allIds = allRecords.Select(r => r.Id);
+        var subTasks = await _dataService.GetSubTasksAsync(TaskParentType.WorkRecord, allIds);
 
-        LongTermTasks.Clear();
-        foreach (var task in tasks.OrderBy(t => t.SortOrder).ThenBy(t => t.CreatedAt))
+        StarredTasks.Clear();
+        var starredIncomplete = starred.Where(r => !r.IsCompleted).OrderBy(r => r.SortOrder).ThenBy(r => r.CreatedAt);
+        var starredCompleted = starred.Where(r => r.IsCompleted).OrderBy(r => r.SortOrder).ThenBy(r => r.CreatedAt);
+        foreach (var record in starredIncomplete.Concat(starredCompleted))
         {
-            LongTermTasks.Add(new LongTermTaskItemViewModel(task)
-            {
-                SortOrder = task.SortOrder
-            });
+            var vm = CreateRecordViewModel(record);
+            if (subTasks.TryGetValue(record.Id, out var subs))
+                PopulateSubTasks(vm, subs);
+            StarredTasks.Add(vm);
         }
-    }
 
-    public async Task LoadRecordsAsync()
-    {
-        var records = await _dataService.GetRecordsAsync(DateDisplay);
-        var sorted = _settingsService.Current.DefaultSortOrder == RecordSortOrder.NewestFirst
-            ? records.OrderByDescending(r => r.CreatedAt)
-            : records.OrderBy(r => r.CreatedAt);
+        var incomplete = records.Where(r => !r.IsCompleted)
+            .OrderBy(r => r.CreatedAt)
+            .ToList();
+        var completed = records.Where(r => r.IsCompleted);
+        var sortedCompleted = _settingsService.Current.DefaultSortOrder == RecordSortOrder.NewestFirst
+            ? completed.OrderByDescending(r => r.CompletedAt ?? r.CreatedAt)
+            : completed.OrderBy(r => r.CompletedAt ?? r.CreatedAt);
 
         Records.Clear();
-        foreach (var record in sorted)
+        foreach (var record in incomplete.Concat(sortedCompleted))
         {
-            Records.Add(new WorkRecordItemViewModel(record, ShowRecordTime)
-            {
-                SortOrder = record.SortOrder
-            });
+            var vm = CreateRecordViewModel(record);
+            if (subTasks.TryGetValue(record.Id, out var subs))
+                PopulateSubTasks(vm, subs);
+            Records.Add(vm);
         }
+
+        RefreshTaskItems();
+    }
+
+    private WorkRecordItemViewModel CreateRecordViewModel(WorkRecord record) =>
+        new(record, ShowRecordTime)
+        {
+            SortOrder = record.SortOrder,
+            IsCompleted = record.IsCompleted,
+            IsStarred = record.IsStarred
+        };
+
+    private void RefreshTaskItems()
+    {
+        TaskItems.Clear();
+        foreach (var task in StarredTasks)
+            TaskItems.Add(task);
+        foreach (var record in Records)
+            TaskItems.Add(record);
+        OnPropertyChanged(nameof(StarredTaskCount));
     }
 
     public async Task LoadQuickButtonsAsync()

@@ -66,6 +66,23 @@ public sealed class SqliteDataService : IDataService
 
         await ExecuteNonQueryAsync(connection, createLongTermTasks);
         await MigrateLongTermTasksTableAsync(connection);
+        await MigrateWorkRecordsTableAsync(connection);
+        await MigrateLongTermToStarredAsync(connection);
+
+        var createSubTasks = """
+            CREATE TABLE IF NOT EXISTS TaskSubItems (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ParentType TEXT NOT NULL,
+                ParentId INTEGER NOT NULL,
+                Content TEXT NOT NULL,
+                IsCompleted INTEGER NOT NULL DEFAULT 0,
+                CreatedAt TEXT NOT NULL,
+                UpdatedAt TEXT NOT NULL,
+                SortOrder INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS IX_TaskSubItems_Parent ON TaskSubItems(ParentType, ParentId);
+            """;
+        await ExecuteNonQueryAsync(connection, createSubTasks);
 
         await SeedDefaultButtonsIfEmptyAsync(connection);
     }
@@ -78,7 +95,7 @@ public sealed class SqliteDataService : IDataService
         var records = new List<WorkRecord>();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder
+            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred
             FROM WorkRecords
             WHERE Date = $date
             ORDER BY SortOrder, CreatedAt
@@ -94,6 +111,57 @@ public sealed class SqliteDataService : IDataService
         return records;
     }
 
+    public async Task<IReadOnlyList<WorkRecord>> GetRecordsForDisplayAsync(string viewDate)
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        var today = DateTime.Today.ToString("yyyy-MM-dd");
+        var records = new List<WorkRecord>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred
+            FROM WorkRecords
+            WHERE (
+                (IsCompleted = 0
+                 AND date(CreatedAt) <= $viewDate
+                 AND $viewDate <= $today)
+                OR (IsCompleted = 1
+                    AND date(CreatedAt) <= $viewDate
+                    AND date(CompletedAt) >= $viewDate)
+              )
+            ORDER BY IsCompleted, SortOrder, CreatedAt
+            """;
+        command.Parameters.AddWithValue("$viewDate", viewDate);
+        command.Parameters.AddWithValue("$today", today);
+
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            records.Add(MapRecord(reader));
+        }
+
+        return records;
+    }
+
+    public async Task SetRecordStarredAsync(int id, bool isStarred)
+    {
+        var now = DateTime.Now.ToString("O");
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE WorkRecords
+            SET IsStarred = $isStarred, UpdatedAt = $updatedAt
+            WHERE Id = $id
+            """;
+        command.Parameters.AddWithValue("$isStarred", isStarred ? 1 : 0);
+        command.Parameters.AddWithValue("$updatedAt", now);
+        command.Parameters.AddWithValue("$id", id);
+        await command.ExecuteNonQueryAsync();
+    }
+
     public async Task<WorkRecord> AddRecordAsync(string date, string content)
     {
         var now = DateTime.Now;
@@ -104,8 +172,8 @@ public sealed class SqliteDataService : IDataService
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO WorkRecords (Date, Content, CreatedAt, UpdatedAt, SortOrder)
-            VALUES ($date, $content, $createdAt, $updatedAt, $sortOrder);
+            INSERT INTO WorkRecords (Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred)
+            VALUES ($date, $content, $createdAt, $updatedAt, $sortOrder, 0, NULL, 0);
             SELECT last_insert_rowid();
             """;
         command.Parameters.AddWithValue("$date", date);
@@ -122,8 +190,50 @@ public sealed class SqliteDataService : IDataService
             Content = content.Trim(),
             CreatedAt = now,
             UpdatedAt = now,
-            SortOrder = sortOrder
+            SortOrder = sortOrder,
+            IsCompleted = false
         };
+    }
+
+    public async Task CompleteRecordAsync(int id, string completionDate)
+    {
+        var completedAt = DateTime.ParseExact(completionDate, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
+            .AddHours(12);
+        var now = DateTime.Now;
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE WorkRecords
+            SET IsCompleted = 1,
+                CompletedAt = $completedAt,
+                UpdatedAt = $updatedAt
+            WHERE Id = $id
+            """;
+        command.Parameters.AddWithValue("$completedAt", completedAt.ToString("O"));
+        command.Parameters.AddWithValue("$updatedAt", now.ToString("O"));
+        command.Parameters.AddWithValue("$id", id);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task UncompleteRecordAsync(int id)
+    {
+        var now = DateTime.Now;
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE WorkRecords
+            SET IsCompleted = 0,
+                CompletedAt = NULL,
+                UpdatedAt = $updatedAt
+            WHERE Id = $id
+            """;
+        command.Parameters.AddWithValue("$updatedAt", now.ToString("O"));
+        command.Parameters.AddWithValue("$id", id);
+        await command.ExecuteNonQueryAsync();
     }
 
     public async Task UpdateRecordContentAsync(int id, string content)
@@ -144,7 +254,7 @@ public sealed class SqliteDataService : IDataService
         await command.ExecuteNonQueryAsync();
     }
 
-    public async Task ReorderRecordsAsync(string date, IReadOnlyList<int> orderedIds)
+    public async Task ReorderRecordsAsync(IReadOnlyList<int> orderedIds)
     {
         await using var connection = CreateConnection();
         await connection.OpenAsync();
@@ -157,11 +267,10 @@ public sealed class SqliteDataService : IDataService
             command.CommandText = """
                 UPDATE WorkRecords
                 SET SortOrder = $sortOrder
-                WHERE Id = $id AND Date = $date
+                WHERE Id = $id
                 """;
             command.Parameters.AddWithValue("$sortOrder", i);
             command.Parameters.AddWithValue("$id", orderedIds[i]);
-            command.Parameters.AddWithValue("$date", date);
             await command.ExecuteNonQueryAsync();
         }
 
@@ -190,6 +299,8 @@ public sealed class SqliteDataService : IDataService
 
     public async Task DeleteRecordAsync(int id)
     {
+        await DeleteSubTasksForParentAsync(TaskParentType.WorkRecord, id);
+
         await using var connection = CreateConnection();
         await connection.OpenAsync();
 
@@ -209,8 +320,7 @@ public sealed class SqliteDataService : IDataService
         command.CommandText = """
             SELECT Id, Content, CreatedAt, UpdatedAt, SortOrder, IsArchived, CompletedAt
             FROM LongTermTasks
-            WHERE IsArchived = 0
-            ORDER BY SortOrder, CreatedAt
+            ORDER BY IsArchived, SortOrder, CreatedAt
             """;
 
         await using var reader = await command.ExecuteReaderAsync();
@@ -295,6 +405,8 @@ public sealed class SqliteDataService : IDataService
 
     public async Task DeleteLongTermTaskAsync(int id)
     {
+        await DeleteSubTasksForParentAsync(TaskParentType.LongTermTask, id);
+
         await using var connection = CreateConnection();
         await connection.OpenAsync();
 
@@ -324,6 +436,25 @@ public sealed class SqliteDataService : IDataService
         await command.ExecuteNonQueryAsync();
     }
 
+    public async Task UncompleteLongTermTaskAsync(int id)
+    {
+        var now = DateTime.Now;
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE LongTermTasks
+            SET IsArchived = 0,
+                CompletedAt = NULL,
+                UpdatedAt = $updatedAt
+            WHERE Id = $id
+            """;
+        command.Parameters.AddWithValue("$updatedAt", now.ToString("O"));
+        command.Parameters.AddWithValue("$id", id);
+        await command.ExecuteNonQueryAsync();
+    }
+
     public async Task<IReadOnlyList<LongTermTask>> GetArchivedLongTermTasksAsync()
     {
         await using var connection = CreateConnection();
@@ -345,6 +476,173 @@ public sealed class SqliteDataService : IDataService
         }
 
         return tasks;
+    }
+
+    public async Task<IReadOnlyList<WorkRecord>> GetCompletedWorkRecordsAsync()
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        var records = new List<WorkRecord>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred
+            FROM WorkRecords
+            WHERE IsCompleted = 1
+            ORDER BY CompletedAt DESC, CreatedAt DESC
+            """;
+
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            records.Add(MapRecord(reader));
+
+        return records;
+    }
+
+    public async Task<IReadOnlyDictionary<int, IReadOnlyList<TaskSubItem>>> GetSubTasksAsync(
+        TaskParentType parentType, IEnumerable<int> parentIds)
+    {
+        var ids = parentIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return new Dictionary<int, IReadOnlyList<TaskSubItem>>();
+
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        var placeholders = string.Join(", ", ids.Select((_, i) => $"$id{i}"));
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT Id, ParentType, ParentId, Content, IsCompleted, CreatedAt, UpdatedAt, SortOrder
+            FROM TaskSubItems
+            WHERE ParentType = $parentType AND ParentId IN ({placeholders})
+            ORDER BY IsCompleted, SortOrder, CreatedAt
+            """;
+        command.Parameters.AddWithValue("$parentType", parentType.ToDbValue());
+        for (var i = 0; i < ids.Count; i++)
+            command.Parameters.AddWithValue($"$id{i}", ids[i]);
+
+        var grouped = ids.ToDictionary(id => id, _ => (IReadOnlyList<TaskSubItem>)new List<TaskSubItem>());
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var item = MapSubTask(reader);
+            ((List<TaskSubItem>)grouped[item.ParentId]).Add(item);
+        }
+
+        return grouped;
+    }
+
+    public async Task<TaskSubItem> AddSubTaskAsync(TaskParentType parentType, int parentId, string content)
+    {
+        var now = DateTime.Now;
+        var sortOrder = await GetNextSubTaskSortOrderAsync(parentType, parentId);
+
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO TaskSubItems (ParentType, ParentId, Content, IsCompleted, CreatedAt, UpdatedAt, SortOrder)
+            VALUES ($parentType, $parentId, $content, 0, $createdAt, $updatedAt, $sortOrder);
+            SELECT last_insert_rowid();
+            """;
+        command.Parameters.AddWithValue("$parentType", parentType.ToDbValue());
+        command.Parameters.AddWithValue("$parentId", parentId);
+        command.Parameters.AddWithValue("$content", content.Trim());
+        command.Parameters.AddWithValue("$createdAt", now.ToString("O"));
+        command.Parameters.AddWithValue("$updatedAt", now.ToString("O"));
+        command.Parameters.AddWithValue("$sortOrder", sortOrder);
+
+        var id = Convert.ToInt32(await command.ExecuteScalarAsync());
+        return new TaskSubItem
+        {
+            Id = id,
+            ParentType = parentType,
+            ParentId = parentId,
+            Content = content.Trim(),
+            IsCompleted = false,
+            CreatedAt = now,
+            UpdatedAt = now,
+            SortOrder = sortOrder
+        };
+    }
+
+    public async Task UpdateSubTaskContentAsync(int id, string content)
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        var now = DateTime.Now.ToString("O");
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE TaskSubItems
+            SET Content = $content, UpdatedAt = $updatedAt
+            WHERE Id = $id
+            """;
+        command.Parameters.AddWithValue("$content", content.Trim());
+        command.Parameters.AddWithValue("$updatedAt", now);
+        command.Parameters.AddWithValue("$id", id);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task CompleteSubTaskAsync(int id)
+    {
+        var now = DateTime.Now;
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE TaskSubItems
+            SET IsCompleted = 1, UpdatedAt = $updatedAt
+            WHERE Id = $id
+            """;
+        command.Parameters.AddWithValue("$updatedAt", now.ToString("O"));
+        command.Parameters.AddWithValue("$id", id);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task UncompleteSubTaskAsync(int id)
+    {
+        var now = DateTime.Now;
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE TaskSubItems
+            SET IsCompleted = 0, UpdatedAt = $updatedAt
+            WHERE Id = $id
+            """;
+        command.Parameters.AddWithValue("$updatedAt", now.ToString("O"));
+        command.Parameters.AddWithValue("$id", id);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task DeleteSubTaskAsync(int id)
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM TaskSubItems WHERE Id = $id";
+        command.Parameters.AddWithValue("$id", id);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task DeleteSubTasksForParentAsync(TaskParentType parentType, int parentId)
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            DELETE FROM TaskSubItems
+            WHERE ParentType = $parentType AND ParentId = $parentId
+            """;
+        command.Parameters.AddWithValue("$parentType", parentType.ToDbValue());
+        command.Parameters.AddWithValue("$parentId", parentId);
+        await command.ExecuteNonQueryAsync();
     }
 
     public async Task<IReadOnlyList<QuickButton>> GetQuickButtonsAsync()
@@ -414,6 +712,7 @@ public sealed class SqliteDataService : IDataService
         {
             Records = await GetAllRecordsAsync(),
             LongTermTasks = await GetAllLongTermTasksAsync(),
+            SubTasks = await GetAllSubTasksAsync(),
             QuickButtons = (await GetQuickButtonsAsync()).ToList()
         };
 
@@ -445,19 +744,30 @@ public sealed class SqliteDataService : IDataService
             await deleteLongTerm.ExecuteNonQueryAsync();
         }
 
+        await using (var deleteSubTasks = connection.CreateCommand())
+        {
+            deleteSubTasks.Transaction = transaction;
+            deleteSubTasks.CommandText = "DELETE FROM TaskSubItems";
+            await deleteSubTasks.ExecuteNonQueryAsync();
+        }
+
         foreach (var record in payload.Records)
         {
             await using var insert = connection.CreateCommand();
             insert.Transaction = transaction;
             insert.CommandText = """
-                INSERT INTO WorkRecords (Date, Content, CreatedAt, UpdatedAt, SortOrder)
-                VALUES ($date, $content, $createdAt, $updatedAt, $sortOrder)
+                INSERT INTO WorkRecords (Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred)
+                VALUES ($date, $content, $createdAt, $updatedAt, $sortOrder, $isCompleted, $completedAt, $isStarred)
                 """;
             insert.Parameters.AddWithValue("$date", record.Date);
             insert.Parameters.AddWithValue("$content", record.Content);
             insert.Parameters.AddWithValue("$createdAt", record.CreatedAt.ToString("O"));
             insert.Parameters.AddWithValue("$updatedAt", record.UpdatedAt.ToString("O"));
             insert.Parameters.AddWithValue("$sortOrder", record.SortOrder);
+            insert.Parameters.AddWithValue("$isCompleted", record.IsCompleted ? 1 : 0);
+            insert.Parameters.AddWithValue("$completedAt",
+                record.CompletedAt.HasValue ? record.CompletedAt.Value.ToString("O") : DBNull.Value);
+            insert.Parameters.AddWithValue("$isStarred", record.IsStarred ? 1 : 0);
             await insert.ExecuteNonQueryAsync();
         }
 
@@ -466,16 +776,35 @@ public sealed class SqliteDataService : IDataService
             await using var insert = connection.CreateCommand();
             insert.Transaction = transaction;
             insert.CommandText = """
-                INSERT INTO LongTermTasks (Content, CreatedAt, UpdatedAt, SortOrder, IsArchived, CompletedAt)
-                VALUES ($content, $createdAt, $updatedAt, $sortOrder, $isArchived, $completedAt)
+                INSERT INTO WorkRecords (Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred)
+                VALUES ($date, $content, $createdAt, $updatedAt, $sortOrder, $isCompleted, $completedAt, 1)
                 """;
+            insert.Parameters.AddWithValue("$date", task.CreatedAt.ToString("yyyy-MM-dd"));
             insert.Parameters.AddWithValue("$content", task.Content);
             insert.Parameters.AddWithValue("$createdAt", task.CreatedAt.ToString("O"));
             insert.Parameters.AddWithValue("$updatedAt", task.UpdatedAt.ToString("O"));
             insert.Parameters.AddWithValue("$sortOrder", task.SortOrder);
-            insert.Parameters.AddWithValue("$isArchived", task.IsArchived ? 1 : 0);
+            insert.Parameters.AddWithValue("$isCompleted", task.IsArchived ? 1 : 0);
             insert.Parameters.AddWithValue("$completedAt",
                 task.CompletedAt.HasValue ? task.CompletedAt.Value.ToString("O") : DBNull.Value);
+            await insert.ExecuteNonQueryAsync();
+        }
+
+        foreach (var subTask in payload.SubTasks ?? [])
+        {
+            await using var insert = connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO TaskSubItems (ParentType, ParentId, Content, IsCompleted, CreatedAt, UpdatedAt, SortOrder)
+                VALUES ($parentType, $parentId, $content, $isCompleted, $createdAt, $updatedAt, $sortOrder)
+                """;
+            insert.Parameters.AddWithValue("$parentType", subTask.ParentType.ToDbValue());
+            insert.Parameters.AddWithValue("$parentId", subTask.ParentId);
+            insert.Parameters.AddWithValue("$content", subTask.Content);
+            insert.Parameters.AddWithValue("$isCompleted", subTask.IsCompleted ? 1 : 0);
+            insert.Parameters.AddWithValue("$createdAt", subTask.CreatedAt.ToString("O"));
+            insert.Parameters.AddWithValue("$updatedAt", subTask.UpdatedAt.ToString("O"));
+            insert.Parameters.AddWithValue("$sortOrder", subTask.SortOrder);
             await insert.ExecuteNonQueryAsync();
         }
 
@@ -512,7 +841,22 @@ public sealed class SqliteDataService : IDataService
         await using var connection = CreateConnection();
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COALESCE(MAX(SortOrder), -1) + 1 FROM LongTermTasks WHERE IsArchived = 0";
+        command.CommandText = "SELECT COALESCE(MAX(SortOrder), -1) + 1 FROM LongTermTasks";
+        return Convert.ToInt32(await command.ExecuteScalarAsync());
+    }
+
+    private async Task<int> GetNextSubTaskSortOrderAsync(TaskParentType parentType, int parentId)
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COALESCE(MAX(SortOrder), -1) + 1
+            FROM TaskSubItems
+            WHERE ParentType = $parentType AND ParentId = $parentId
+            """;
+        command.Parameters.AddWithValue("$parentType", parentType.ToDbValue());
+        command.Parameters.AddWithValue("$parentId", parentId);
         return Convert.ToInt32(await command.ExecuteScalarAsync());
     }
 
@@ -552,7 +896,7 @@ public sealed class SqliteDataService : IDataService
         var records = new List<WorkRecord>();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder
+            SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred
             FROM WorkRecords
             ORDER BY Date, SortOrder, CreatedAt
             """;
@@ -586,6 +930,112 @@ public sealed class SqliteDataService : IDataService
         }
 
         return tasks;
+    }
+
+    private async Task<List<TaskSubItem>> GetAllSubTasksAsync()
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        var items = new List<TaskSubItem>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, ParentType, ParentId, Content, IsCompleted, CreatedAt, UpdatedAt, SortOrder
+            FROM TaskSubItems
+            ORDER BY ParentType, ParentId, SortOrder, CreatedAt
+            """;
+
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            items.Add(MapSubTask(reader));
+
+        return items;
+    }
+
+    private static async Task MigrateWorkRecordsTableAsync(SqliteConnection connection)
+    {
+        if (!await ColumnExistsAsync(connection, "WorkRecords", "IsCompleted"))
+        {
+            await ExecuteNonQueryAsync(connection,
+                "ALTER TABLE WorkRecords ADD COLUMN IsCompleted INTEGER NOT NULL DEFAULT 1;");
+        }
+
+        if (!await ColumnExistsAsync(connection, "WorkRecords", "CompletedAt"))
+        {
+            await ExecuteNonQueryAsync(connection,
+                "ALTER TABLE WorkRecords ADD COLUMN CompletedAt TEXT;");
+            await ExecuteNonQueryAsync(connection,
+                "UPDATE WorkRecords SET CompletedAt = CreatedAt WHERE CompletedAt IS NULL;");
+        }
+
+        if (!await ColumnExistsAsync(connection, "WorkRecords", "IsStarred"))
+        {
+            await ExecuteNonQueryAsync(connection,
+                "ALTER TABLE WorkRecords ADD COLUMN IsStarred INTEGER NOT NULL DEFAULT 0;");
+        }
+    }
+
+    private static async Task MigrateLongTermToStarredAsync(SqliteConnection connection)
+    {
+        await using var countCmd = connection.CreateCommand();
+        countCmd.CommandText = "SELECT COUNT(*) FROM LongTermTasks";
+        var count = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
+        if (count == 0) return;
+
+        var idMap = new Dictionary<int, int>();
+
+        await using (var selectCmd = connection.CreateCommand())
+        {
+            selectCmd.CommandText = """
+                SELECT Id, Content, CreatedAt, UpdatedAt, SortOrder, IsArchived, CompletedAt
+                FROM LongTermTasks
+                """;
+
+            await using var reader = await selectCmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var oldId = reader.GetInt32(0);
+                var content = reader.GetString(1);
+                var createdAt = reader.GetString(2);
+                var updatedAt = reader.GetString(3);
+                var sortOrder = reader.GetInt32(4);
+                var isArchived = reader.GetInt32(5) == 1;
+                var completedAt = reader.IsDBNull(6) ? null : reader.GetString(6);
+                var date = DateTime.Parse(createdAt).ToString("yyyy-MM-dd");
+
+                await using var insert = connection.CreateCommand();
+                insert.CommandText = """
+                    INSERT INTO WorkRecords (Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred)
+                    VALUES ($date, $content, $createdAt, $updatedAt, $sortOrder, $isCompleted, $completedAt, 1);
+                    SELECT last_insert_rowid();
+                    """;
+                insert.Parameters.AddWithValue("$date", date);
+                insert.Parameters.AddWithValue("$content", content);
+                insert.Parameters.AddWithValue("$createdAt", createdAt);
+                insert.Parameters.AddWithValue("$updatedAt", updatedAt);
+                insert.Parameters.AddWithValue("$sortOrder", sortOrder);
+                insert.Parameters.AddWithValue("$isCompleted", isArchived ? 1 : 0);
+                insert.Parameters.AddWithValue("$completedAt", completedAt is null ? DBNull.Value : completedAt);
+
+                var newId = Convert.ToInt32(await insert.ExecuteScalarAsync());
+                idMap[oldId] = newId;
+            }
+        }
+
+        foreach (var (oldId, newId) in idMap)
+        {
+            await using var update = connection.CreateCommand();
+            update.CommandText = """
+                UPDATE TaskSubItems
+                SET ParentType = 'WorkRecord', ParentId = $newId
+                WHERE ParentType = 'LongTermTask' AND ParentId = $oldId
+                """;
+            update.Parameters.AddWithValue("$newId", newId);
+            update.Parameters.AddWithValue("$oldId", oldId);
+            await update.ExecuteNonQueryAsync();
+        }
+
+        await ExecuteNonQueryAsync(connection, "DELETE FROM LongTermTasks");
     }
 
     private static async Task MigrateLongTermTasksTableAsync(SqliteConnection connection)
@@ -635,7 +1085,22 @@ public sealed class SqliteDataService : IDataService
         Content = reader.GetString(2),
         CreatedAt = DateTime.Parse(reader.GetString(3)),
         UpdatedAt = DateTime.Parse(reader.GetString(4)),
-        SortOrder = reader.GetInt32(5)
+        SortOrder = reader.GetInt32(5),
+        IsCompleted = reader.GetInt32(6) == 1,
+        CompletedAt = reader.IsDBNull(7) ? null : DateTime.Parse(reader.GetString(7)),
+        IsStarred = reader.FieldCount > 8 && !reader.IsDBNull(8) && reader.GetInt32(8) == 1
+    };
+
+    private static TaskSubItem MapSubTask(SqliteDataReader reader) => new()
+    {
+        Id = reader.GetInt32(0),
+        ParentType = TaskParentTypeExtensions.FromDbValue(reader.GetString(1)),
+        ParentId = reader.GetInt32(2),
+        Content = reader.GetString(3),
+        IsCompleted = reader.GetInt32(4) == 1,
+        CreatedAt = DateTime.Parse(reader.GetString(5)),
+        UpdatedAt = DateTime.Parse(reader.GetString(6)),
+        SortOrder = reader.GetInt32(7)
     };
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -648,6 +1113,7 @@ public sealed class SqliteDataService : IDataService
     {
         public List<WorkRecord> Records { get; set; } = [];
         public List<LongTermTask> LongTermTasks { get; set; } = [];
+        public List<TaskSubItem> SubTasks { get; set; } = [];
         public List<QuickButton> QuickButtons { get; set; } = [];
     }
 }

@@ -25,68 +25,34 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 长期任务标题 -->
+        <!-- 任务列表标题 -->
         <Grid Grid.Row="0" Margin="4,0,4,6">
-            <TextBlock Text="📌 长期任务"
+            <TextBlock Text="任务列表"
                        FontWeight="SemiBold"
                        Foreground="{DynamicResource TextPrimaryBrush}"
                        VerticalAlignment="Center" />
-            <Button Style="{StaticResource IconButton}"
-                    Content="📦"
-                    HorizontalAlignment="Right"
-                    ToolTip="归档箱"
-                    Click="OpenArchive_Click" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Style="{StaticResource IconButton}"
+                        Content="⇅"
+                        ToolTip="切换已完成任务排序"
+                        Command="{Binding ToggleSortOrderCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+                <Button Style="{StaticResource IconButton}"
+                        Content="📦"
+                        ToolTip="任务归档箱"
+                        Click="OpenArchive_Click" />
+            </StackPanel>
         </Grid>
 
-        <!-- 长期任务列表 -->
-        <ListBox x:Name="LongTermListBox"
-                 Grid.Row="1"
-                 ItemsSource="{Binding LongTermTasks, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                 BorderThickness="0"
-                 Background="Transparent"
-                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                 MaxHeight="160">
-            <ListBox.ItemContainerStyle>
-                <StaticResource ResourceKey="RecordListBoxItemStyle" />
-            </ListBox.ItemContainerStyle>
-            <ListBox.ItemTemplate>
-                <DataTemplate>
-                    <ctrl:RecordListItem Loaded="RecordListItem_Loaded" Unloaded="RecordListItem_Unloaded" />
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
-
-        <!-- 分隔线 -->
-        <Border Grid.Row="2"
-                Height="1"
-                Background="{DynamicResource BorderBrush}"
-                Margin="4,0,4,8" />
-
-        <!-- 今日记录标题 -->
-        <Grid Grid.Row="3" Margin="4,0,4,6">
-            <TextBlock Text="今日工作记录"
-                       FontWeight="SemiBold"
-                       Foreground="{DynamicResource TextPrimaryBrush}" />
-            <Button Style="{StaticResource IconButton}"
-                    Content="⇅"
-                    HorizontalAlignment="Right"
-                    ToolTip="切换排序"
-                    Command="{Binding ToggleSortOrderCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
-        </Grid>
-
-        <!-- 今日记录区域 -->
-        <Grid Grid.Row="4">
+        <!-- 合并任务列表 -->
+        <Grid Grid.Row="1">
             <!-- 空状态占位 -->
             <StackPanel VerticalAlignment="Center"
                         HorizontalAlignment="Center"
                         Margin="16"
-                        Visibility="{Binding Records.Count, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource EmptyVis}, ConverterParameter=Inverse}">
+                        Visibility="{Binding TaskItems.Count, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource EmptyVis}, ConverterParameter=Inverse}">
                 <Viewbox Width="96" Height="96" Margin="0,0,0,12" Opacity="0.55">
                     <Canvas Width="120" Height="120">
                         <Rectangle Canvas.Left="20" Canvas.Top="10" Width="72" Height="96" RadiusX="8" RadiusY="8"
@@ -103,12 +69,12 @@
                               StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
                     </Canvas>
                 </Viewbox>
-                <TextBlock Text="今天还没有记录"
+                <TextBlock Text="暂无任务"
                            FontSize="14"
                            FontWeight="SemiBold"
                            Foreground="{DynamicResource TextSecondaryBrush}"
                            HorizontalAlignment="Center" />
-                <TextBlock Text="点击下方输入框，把完成的事记下来"
+                <TextBlock Text="右键可标注星级任务"
                            FontSize="11"
                            Foreground="{DynamicResource TextSecondaryBrush}"
                            Opacity="0.8"
@@ -116,13 +82,12 @@
                            HorizontalAlignment="Center" />
             </StackPanel>
 
-            <!-- 记录列表 -->
-            <ListBox x:Name="RecordListBox"
-                     ItemsSource="{Binding Records, RelativeSource={RelativeSource AncestorType=UserControl}}"
+            <ListBox x:Name="TaskListBox"
+                     ItemsSource="{Binding TaskItems, RelativeSource={RelativeSource AncestorType=UserControl}}"
                      BorderThickness="0"
                      Background="Transparent"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                     Visibility="{Binding Records.Count, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource CountVis}}">
+                     Visibility="{Binding TaskItems.Count, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource CountVis}}">
                 <ListBox.ItemContainerStyle>
                     <StaticResource ResourceKey="RecordListBoxItemStyle" />
                 </ListBox.ItemContainerStyle>
@@ -134,9 +99,9 @@
             </ListBox>
         </Grid>
 
-        <!-- 拖拽插入指示线（覆盖全区域） -->
+        <!-- 拖拽插入指示线 -->
         <Border x:Name="InsertIndicator"
-                Grid.RowSpan="5"
+                Grid.RowSpan="2"
                 Height="2"
                 Background="{DynamicResource PrimaryBrush}"
                 VerticalAlignment="Top"

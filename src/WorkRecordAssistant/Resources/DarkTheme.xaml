@@ -12,13 +12,16 @@
     <Color x:Key="TextSecondaryColor">#ADADAD</Color>
     <Color x:Key="AccentSubtleColor">#1A3A52</Color>
     <Color x:Key="DangerColor">#FF6B6B</Color>
-    <Color x:Key="LongTermTaskBackgroundColor">#3D2525</Color>
+    <Color x:Key="StarredTaskBackgroundColor">#3D2D4A</Color>
+    <Color x:Key="StarIconColor">#CE93D8</Color>
     <Color x:Key="CopyButtonBackgroundColor">#3D7AA8</Color>
     <Color x:Key="CopyButtonHoverColor">#4D8AB8</Color>
     <Color x:Key="CopyButtonPressedColor">#2D6A98</Color>
     <Color x:Key="LongTermButtonBackgroundColor">#9E4545</Color>
     <Color x:Key="LongTermButtonHoverColor">#AE5555</Color>
     <Color x:Key="LongTermButtonPressedColor">#8E3535</Color>
+    <Color x:Key="TaskIncompleteColor">#60CDFF</Color>
+    <Color x:Key="TaskCompleteColor">#6CCB5F</Color>
 
     <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource PrimaryColor}" />
     <SolidColorBrush x:Key="PrimaryHoverBrush" Color="{StaticResource PrimaryHoverColor}" />
@@ -30,13 +33,16 @@
     <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}" />
     <SolidColorBrush x:Key="AccentSubtleBrush" Color="{StaticResource AccentSubtleColor}" />
     <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
-    <SolidColorBrush x:Key="LongTermTaskBackgroundBrush" Color="{StaticResource LongTermTaskBackgroundColor}" />
+    <SolidColorBrush x:Key="StarredTaskBackgroundBrush" Color="{StaticResource StarredTaskBackgroundColor}" />
+    <SolidColorBrush x:Key="StarIconBrush" Color="{StaticResource StarIconColor}" />
     <SolidColorBrush x:Key="CopyButtonBackgroundBrush" Color="{StaticResource CopyButtonBackgroundColor}" />
     <SolidColorBrush x:Key="CopyButtonHoverBrush" Color="{StaticResource CopyButtonHoverColor}" />
     <SolidColorBrush x:Key="CopyButtonPressedBrush" Color="{StaticResource CopyButtonPressedColor}" />
     <SolidColorBrush x:Key="LongTermButtonBackgroundBrush" Color="{StaticResource LongTermButtonBackgroundColor}" />
     <SolidColorBrush x:Key="LongTermButtonHoverBrush" Color="{StaticResource LongTermButtonHoverColor}" />
     <SolidColorBrush x:Key="LongTermButtonPressedBrush" Color="{StaticResource LongTermButtonPressedColor}" />
+    <SolidColorBrush x:Key="TaskIncompleteBrush" Color="{StaticResource TaskIncompleteColor}" />
+    <SolidColorBrush x:Key="TaskCompleteBrush" Color="{StaticResource TaskCompleteColor}" />
 
     <DropShadowEffect x:Key="CardShadow" BlurRadius="20" ShadowDepth="2" Opacity="0.35" Color="#000000" />
 

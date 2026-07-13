@@ -1,7 +1,7 @@
 namespace WorkRecordAssistant.ViewModels;
 
 /// <summary>
-/// 记录列表项通用接口，供日常记录与长期任务复用 UI。
+/// 任务列表项通用接口。
 /// </summary>
 public interface IRecordListItemViewModel
 {
@@ -13,7 +13,25 @@ public interface IRecordListItemViewModel
 
     bool IsEditing { get; set; }
 
-    bool IsLongTermTask { get; }
+    bool IsStarred { get; }
+
+    bool IsCompleted { get; }
+
+    bool ShowCompleteButton { get; }
+
+    bool SupportsTapToComplete { get; }
+
+    bool ShowStartDateHint { get; }
+
+    string StartDateHint { get; }
+
+    bool IsDisplayUnderlined { get; }
 
     int SortOrder { get; set; }
+
+    System.Collections.ObjectModel.ObservableCollection<SubTaskItemViewModel> SubTasks { get; }
+
+    bool IsAddingSubTask { get; set; }
+
+    string NewSubTaskText { get; set; }
 }

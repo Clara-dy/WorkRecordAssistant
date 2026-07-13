@@ -20,6 +20,8 @@
     <Window.Resources>
         <conv:StringNotEmptyToVisibilityConverter xmlns:conv="clr-namespace:WorkRecordAssistant.Converters"
                                                   x:Key="StringNotEmptyToVis" />
+        <conv:BoolToVisibilityConverter xmlns:conv="clr-namespace:WorkRecordAssistant.Converters"
+                                      x:Key="BoolVis" />
     </Window.Resources>
 
     <Border Background="{DynamicResource BackgroundBrush}"
@@ -57,7 +59,7 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button Style="{StaticResource IconButton}" Content="⚙" ToolTip="设置" Click="OpenSettings_Click" />
                     <Button Style="{StaticResource IconButton}" Content="—" ToolTip="最小化" Click="Minimize_Click" />
-                    <Button Style="{StaticResource IconButton}" Content="✕" ToolTip="关闭" Click="Close_Click" />
+                    <Button Style="{StaticResource IconButton}" Content="✕" ToolTip="最小化" Click="Close_Click" />
                 </StackPanel>
             </Grid>
 
@@ -108,30 +110,33 @@
             <!-- 工作记录列表 -->
             <Border Grid.Row="3" Style="{StaticResource CardBorder}" Padding="4" Margin="0,0,0,8">
                 <ctrl:RecordListView x:Name="RecordList"
-                                     Records="{Binding Records}"
-                                     LongTermTasks="{Binding LongTermTasks}"
+                                     TaskItems="{Binding TaskItems}"
+                                     StarredTaskCount="{Binding StarredTaskCount}"
                                      DeleteRequested="RecordList_DeleteRequested"
                                      CompleteRequested="RecordList_CompleteRequested"
                                      OpenArchiveRequested="RecordList_OpenArchiveRequested"
                                      RecordEditingChanged="RecordList_RecordEditingChanged" />
             </Border>
 
-            <!-- 输入框（带占位提示） -->
-            <Grid Grid.Row="4" Margin="0,0,0,8">
+            <!-- 任务输入框（点击「添加任务」后显示） -->
+            <Grid Grid.Row="4"
+                  Margin="0,0,0,8"
+                  Visibility="{Binding IsInputPanelVisible, Converter={StaticResource BoolVis}}"
+                  IsVisibleChanged="InputPanel_IsVisibleChanged">
                 <TextBox x:Name="InputBox"
                          Style="{StaticResource RoundedTextBox}"
                          Text="{Binding InputText, UpdateSourceTrigger=PropertyChanged}"
+                         TextWrapping="Wrap"
+                         AcceptsReturn="True"
+                         MinHeight="36"
+                         MaxHeight="120"
                          GotFocus="InputBox_GotFocus"
                          LostFocus="InputBox_LostFocus"
-                         KeyDown="InputBox_KeyDown">
-                    <TextBox.InputBindings>
-                        <KeyBinding Key="Return" Command="{Binding AddRecordCommand}" />
-                    </TextBox.InputBindings>
-                </TextBox>
-                <TextBlock Text="干活别忘记记下来"
+                         PreviewKeyDown="InputBox_PreviewKeyDown" />
+                <TextBlock Text="输入任务，Enter 添加 · Shift+Enter 换行"
                            IsHitTestVisible="False"
-                           VerticalAlignment="Center"
-                           Margin="12,0,0,0"
+                           VerticalAlignment="Top"
+                           Margin="12,10,12,0"
                            Foreground="{DynamicResource TextSecondaryBrush}"
                            FontSize="13">
                     <TextBlock.Style>
@@ -151,31 +156,24 @@
                 </TextBlock>
             </Grid>
 
-            <!-- 操作按钮：左长期任务 / 中复制 / 右新建 -->
+            <!-- 操作按钮 -->
             <Grid Grid.Row="5">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="0"
-                        Style="{StaticResource LongTermButton}"
-                        Content="长期任务"
-                        ToolTip="添加到长期任务"
-                        Margin="0,0,4,0"
-                        Command="{Binding AddLongTermTaskCommand}" />
-                <Button Grid.Column="1"
                         Style="{StaticResource CopyButton}"
                         Content="一键复制"
-                        ToolTip="复制当天内容"
-                        Margin="4,0,4,0"
+                        ToolTip="复制当天已完成任务"
+                        Margin="0,0,4,0"
                         Command="{Binding CopyTodayCommand}" />
-                <Button Grid.Column="2"
+                <Button Grid.Column="1"
                         Style="{StaticResource PrimaryButton}"
-                        Content="新建"
-                        ToolTip="添加到今日记录"
+                        Content="添加任务"
+                        ToolTip="添加任务"
                         Margin="4,0,0,0"
-                        Command="{Binding AddRecordCommand}" />
+                        Command="{Binding ShowTaskInputCommand}" />
             </Grid>
 
             <!-- 状态栏 -->

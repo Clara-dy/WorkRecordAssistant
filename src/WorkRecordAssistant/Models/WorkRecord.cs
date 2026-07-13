@@ -17,4 +17,10 @@ public class WorkRecord
     public DateTime UpdatedAt { get; set; }
 
     public int SortOrder { get; set; }
+
+    public bool IsCompleted { get; set; }
+
+    public DateTime? CompletedAt { get; set; }
+
+    public bool IsStarred { get; set; }
 }
