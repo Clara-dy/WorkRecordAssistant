@@ -22,6 +22,7 @@
     <Color x:Key="LongTermButtonPressedColor">#A34040</Color>
     <Color x:Key="TaskIncompleteColor">#0078D4</Color>
     <Color x:Key="TaskCompleteColor">#107C10</Color>
+    <Color x:Key="VersionTextColor">#E68A00</Color>
 
     <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource PrimaryColor}" />
     <SolidColorBrush x:Key="PrimaryHoverBrush" Color="{StaticResource PrimaryHoverColor}" />
@@ -43,6 +44,7 @@
     <SolidColorBrush x:Key="LongTermButtonPressedBrush" Color="{StaticResource LongTermButtonPressedColor}" />
     <SolidColorBrush x:Key="TaskIncompleteBrush" Color="{StaticResource TaskIncompleteColor}" />
     <SolidColorBrush x:Key="TaskCompleteBrush" Color="{StaticResource TaskCompleteColor}" />
+    <SolidColorBrush x:Key="VersionTextBrush" Color="{StaticResource VersionTextColor}" />
 
     <DropShadowEffect x:Key="CardShadow" BlurRadius="16" ShadowDepth="2" Opacity="0.12" Color="#000000" />
 

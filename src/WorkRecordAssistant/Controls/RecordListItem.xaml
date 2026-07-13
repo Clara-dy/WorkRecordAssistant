@@ -156,17 +156,17 @@
                                         <TextBlock Text="{Binding VersionNumberPart}"
                                                    FontSize="10"
                                                    FontWeight="SemiBold"
-                                                   Foreground="{DynamicResource TaskCompleteBrush}"
+                                                   Foreground="{DynamicResource VersionTextBrush}"
                                                    Margin="0,0,6,0"
                                                    Visibility="{Binding ShowVersionNumberPart, Converter={StaticResource BoolVis}}" />
                                         <TextBlock Text="·"
                                                    FontSize="10"
-                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   Foreground="{DynamicResource VersionTextBrush}"
                                                    Margin="0,0,6,0"
                                                    Visibility="{Binding ShowVersionInfoPart, Converter={StaticResource BoolVis}}" />
                                         <TextBlock Text="{Binding VersionInfoPart}"
                                                    FontSize="10"
-                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   Foreground="{DynamicResource VersionTextBrush}"
                                                    TextWrapping="Wrap"
                                                    Visibility="{Binding ShowVersionInfoPart, Converter={StaticResource BoolVis}}" />
                                     </StackPanel>
