@@ -12,7 +12,8 @@ public static class StartMenuShortcutService
 
     public static void EnsureShortcut(string executablePath)
     {
-        if (!CanCreateShortcut(executablePath))
+        var targetPath = ResolveShortcutTarget(executablePath);
+        if (!CanCreateShortcut(targetPath))
             return;
 
         var shortcutPath = Path.Combine(
@@ -28,10 +29,21 @@ public static class StartMenuShortcutService
 
         dynamic shell = Activator.CreateInstance(shellType)!;
         dynamic shortcut = shell.CreateShortcut(shortcutPath);
-        shortcut.TargetPath = executablePath;
-        shortcut.WorkingDirectory = Path.GetDirectoryName(executablePath) ?? string.Empty;
+        shortcut.TargetPath = targetPath;
+        shortcut.WorkingDirectory = Path.GetDirectoryName(targetPath) ?? string.Empty;
         shortcut.Description = Description;
         shortcut.Save();
+    }
+
+    private static string ResolveShortcutTarget(string executablePath)
+    {
+        var installExe = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Programs",
+            "WorkRecordAssistant",
+            "WorkRecordAssistant.exe");
+
+        return File.Exists(installExe) ? installExe : executablePath;
     }
 
     private static bool CanCreateShortcut(string executablePath)

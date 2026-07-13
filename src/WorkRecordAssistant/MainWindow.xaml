@@ -12,7 +12,7 @@
         AllowsTransparency="True"
         Background="Transparent"
         ResizeMode="CanResizeWithGrip"
-        ShowInTaskbar="True"
+        ShowInTaskbar="False"
         Topmost="True"
         UseLayoutRounding="True"
         FontFamily="Segoe UI Variable, Segoe UI, Microsoft YaHei UI">
@@ -58,7 +58,7 @@
                            IsHitTestVisible="False" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button Style="{StaticResource IconButton}" Content="⚙" ToolTip="设置" Click="OpenSettings_Click" />
-                    <Button Style="{StaticResource IconButton}" Content="—" ToolTip="最小化" Click="Minimize_Click" />
+                    <Button Style="{StaticResource IconButton}" Content="—" ToolTip="隐藏到托盘" Click="Minimize_Click" />
                     <Button Style="{StaticResource IconButton}" Content="✕" ToolTip="隐藏到托盘" Click="Close_Click" />
                 </StackPanel>
             </Grid>

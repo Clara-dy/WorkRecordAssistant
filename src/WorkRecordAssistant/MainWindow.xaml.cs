@@ -34,6 +34,7 @@ public partial class MainWindow : Window
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Resources/app-icon.png", UriKind.Absolute));
 
         _trayIcon = new TrayIconHelper(this, ExitApplication);
+        _trayIcon.EnsureTrayIconVisible();
 
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
@@ -279,8 +280,12 @@ public partial class MainWindow : Window
         _ = _viewModel.LoadTasksAsync();
     }
 
-    private void Minimize_Click(object sender, RoutedEventArgs e) =>
-        WindowState = WindowState.Minimized;
+    private async void Minimize_Click(object sender, RoutedEventArgs e)
+    {
+        StopWindowDrag();
+        await SaveWindowStateAsync();
+        _trayIcon?.HideToTray();
+    }
 
     private async void Close_Click(object sender, RoutedEventArgs e)
     {

@@ -59,20 +59,21 @@ public sealed class TrayIconHelper : IDisposable
         });
     }
 
+    public void EnsureTrayIconVisible() => UpdateTrayIcon(true);
+
     public void HideToTray()
     {
         _window.Hide();
-        _window.ShowInTaskbar = false;
         UpdateTrayIcon(true);
     }
 
     public void ShowWindow()
     {
-        _window.ShowInTaskbar = true;
         _window.Show();
         _window.WindowState = WindowState.Normal;
         _window.Activate();
         _window.Topmost = true;
+        UpdateTrayIcon(true);
     }
 
     public void Dispose()
