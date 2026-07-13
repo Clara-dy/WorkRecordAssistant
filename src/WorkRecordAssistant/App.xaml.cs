@@ -39,9 +39,10 @@ public partial class App : Application
             await dataService.InitializeAsync();
 
             var mainWindow = Services.GetRequiredService<MainWindow>();
+            Current.MainWindow = mainWindow;
+            Current.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            mainWindow.PrepareStartupInTray();
             mainWindow.Show();
-            mainWindow.Activate();
-            mainWindow.Topmost = true;
         }
         catch (Exception ex)
         {

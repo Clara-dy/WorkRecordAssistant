@@ -20,6 +20,8 @@ public partial class MainWindow : Window
     private readonly ISettingsService _settingsService;
     private readonly WindowDragHelper _dragHelper;
     private FloatingWindowBehavior? _floatingBehavior;
+    private TrayIconHelper? _trayIcon;
+    private bool _isExiting;
 
     public MainWindow(MainViewModel viewModel, ISettingsService settingsService)
     {
@@ -31,6 +33,8 @@ public partial class MainWindow : Window
 
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Resources/app-icon.png", UriKind.Absolute));
 
+        _trayIcon = new TrayIconHelper(this, ExitApplication);
+
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
         SizeChanged += MainWindow_SizeChanged;
@@ -41,6 +45,12 @@ public partial class MainWindow : Window
         var collapsed = ActualWidth < 40;
         CollapsedStripOverlay.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
         MainContent.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    public void PrepareStartupInTray()
+    {
+        ShowInTaskbar = false;
+        ShowActivated = false;
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -56,6 +66,7 @@ public partial class MainWindow : Window
             _floatingBehavior.RestoreSnapState(_settingsService.Current.SnapEdge);
 
         await _viewModel.InitializeAsync();
+        _trayIcon?.HideToTray();
     }
 
     private void RestoreWindowGeometry()
@@ -66,8 +77,23 @@ public partial class MainWindow : Window
 
     private async void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        StopWindowDrag();
+        if (!_isExiting)
+        {
+            e.Cancel = true;
+            StopWindowDrag();
+            await SaveWindowStateAsync();
+            _trayIcon?.HideToTray();
+            return;
+        }
 
+        StopWindowDrag();
+        await SaveWindowStateAsync();
+        _trayIcon?.Dispose();
+        _trayIcon = null;
+    }
+
+    private async Task SaveWindowStateAsync()
+    {
         if (_floatingBehavior is not null)
         {
             var (left, top, width, height, snapEdge) = _floatingBehavior.GetPersistedState();
@@ -77,6 +103,14 @@ public partial class MainWindow : Window
         {
             await _viewModel.SaveWindowStateAsync(Left, Top, Width, Height, SnapEdge.None);
         }
+    }
+
+    private void ExitApplication()
+    {
+        _isExiting = true;
+        _trayIcon?.Dispose();
+        _trayIcon = null;
+        System.Windows.Application.Current.Shutdown();
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -248,8 +282,12 @@ public partial class MainWindow : Window
     private void Minimize_Click(object sender, RoutedEventArgs e) =>
         WindowState = WindowState.Minimized;
 
-    private void Close_Click(object sender, RoutedEventArgs e) =>
-        WindowState = WindowState.Minimized;
+    private async void Close_Click(object sender, RoutedEventArgs e)
+    {
+        StopWindowDrag();
+        await SaveWindowStateAsync();
+        _trayIcon?.HideToTray();
+    }
 
     private async void RecordList_DeleteRequested(object? sender, IRecordListItemViewModel e) =>
         await _viewModel.DeleteRecordItemAsync(e);
