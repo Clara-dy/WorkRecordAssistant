@@ -28,12 +28,12 @@ public partial class MainWindow : Window
         InitializeComponent();
         _viewModel = viewModel;
         _settingsService = settingsService;
-        _dragHelper = new WindowDragHelper(this);
+        _dragHelper = new WindowDragHelper(this, () => _settingsService.Current.SnapDistancePx);
         DataContext = viewModel;
 
         Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Resources/app-icon.png", UriKind.Absolute));
 
-        _trayIcon = new TrayIconHelper(this, ExitApplication);
+        _trayIcon = new TrayIconHelper(this, ExitApplication, OnRestoredFromTray);
         _trayIcon.EnsureTrayIconVisible();
 
         Loaded += MainWindow_Loaded;
@@ -41,11 +41,22 @@ public partial class MainWindow : Window
         SizeChanged += MainWindow_SizeChanged;
     }
 
-    private void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e)
+    private void OnRestoredFromTray()
     {
-        var collapsed = ActualWidth < 40;
+        _dragHelper.ClampWindowToWorkArea();
+        _floatingBehavior?.EnsureOnScreen();
+    }
+
+    private void SetCollapsedChrome(bool collapsed)
+    {
         CollapsedStripOverlay.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
         MainContent.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_floatingBehavior?.IsCollapsedAtEdge == true && ActualWidth < 40)
+            SetCollapsedChrome(true);
     }
 
     public void PrepareStartupInTray()
@@ -61,7 +72,8 @@ public partial class MainWindow : Window
         _floatingBehavior = new FloatingWindowBehavior(
             this,
             () => _settingsService.Current,
-            () => _viewModel.IsEditing);
+            () => _viewModel.IsEditing,
+            SetCollapsedChrome);
 
         if (_settingsService.Current.SnapEdge != SnapEdge.None)
             _floatingBehavior.RestoreSnapState(_settingsService.Current.SnapEdge);

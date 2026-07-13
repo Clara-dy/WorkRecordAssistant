@@ -24,15 +24,17 @@ public sealed class TrayIconHelper : IDisposable
 
     private readonly Window _window;
     private readonly Action _onExit;
+    private readonly Action? _onShowWindow;
     private readonly HwndSource _messageSource;
     private readonly Icon _icon;
     private readonly ContextMenu _contextMenu;
     private bool _isVisible;
 
-    public TrayIconHelper(Window window, Action onExit)
+    public TrayIconHelper(Window window, Action onExit, Action? onShowWindow = null)
     {
         _window = window;
         _onExit = onExit;
+        _onShowWindow = onShowWindow;
         _icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath ?? AppContext.BaseDirectory)
                ?? SystemIcons.Application;
 
@@ -73,6 +75,7 @@ public sealed class TrayIconHelper : IDisposable
         _window.WindowState = WindowState.Normal;
         _window.Activate();
         _window.Topmost = true;
+        _onShowWindow?.Invoke();
         UpdateTrayIcon(true);
     }
 

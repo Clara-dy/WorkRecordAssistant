@@ -18,6 +18,7 @@ public sealed class FloatingWindowBehavior
     private readonly Window _window;
     private readonly Func<AppSettings> _getSettings;
     private readonly Func<bool> _isEditing;
+    private readonly Action<bool> _setCollapsedChrome;
 
     private SnapEdge _snapEdge = SnapEdge.None;
     private bool _isExpanded = true;
@@ -27,24 +28,32 @@ public sealed class FloatingWindowBehavior
     private double _expandedTop;
     private double _fullWidth;
     private double _savedMinWidth;
-    private DateTime _lastExpandUtc = DateTime.MinValue;
+    private double _savedMaxWidth;
     private int _pendingAnimationCount;
     private readonly DispatcherTimer _hideTimer;
     private readonly DispatcherTimer _presenceTimer;
+    private DateTime _hoverExpandBlockedUntil = DateTime.MinValue;
+    private DateTime? _cursorOutsideSince;
 
-    public FloatingWindowBehavior(Window window, Func<AppSettings> getSettings, Func<bool> isEditing)
+    public FloatingWindowBehavior(
+        Window window,
+        Func<AppSettings> getSettings,
+        Func<bool> isEditing,
+        Action<bool> setCollapsedChrome)
     {
         _window = window;
         _getSettings = getSettings;
         _isEditing = isEditing;
+        _setCollapsedChrome = setCollapsedChrome;
         _savedMinWidth = window.MinWidth;
+        _savedMaxWidth = window.MaxWidth;
 
         _hideTimer = new DispatcherTimer();
         _hideTimer.Tick += (_, _) =>
         {
             _hideTimer.Stop();
-            if (!_isEditing() && !_isDragging && _snapEdge != SnapEdge.None && _isExpanded)
-                CollapseToEdge();
+            if (!_isDragging && _snapEdge != SnapEdge.None && _isExpanded)
+                CollapseToEdge(force: true);
         };
 
         _presenceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
@@ -53,6 +62,7 @@ public sealed class FloatingWindowBehavior
         _window.Loaded += OnLoaded;
         _window.LocationChanged += OnLocationChanged;
         _window.SizeChanged += OnSizeChanged;
+        _window.IsVisibleChanged += OnIsVisibleChanged;
         _window.MouseEnter += (_, _) => OnWindowMouseEnter();
         _window.StateChanged += (_, _) =>
         {
@@ -122,7 +132,23 @@ public sealed class FloatingWindowBehavior
             return;
         }
 
-        TrySnapToEdge();
+        _window.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            if (_isDragging) return;
+            TrySnapToEdge();
+        });
+    }
+
+    public void EnsureOnScreen()
+    {
+        if (!WindowBoundsHelper.TryGetWindowRectPhysical(_window, out var rect)
+            || !WindowBoundsHelper.TryGetWorkAreaForWindow(_window, out var work))
+            return;
+
+        var (x, y) = WindowBoundsHelper.ConstrainPosition(
+            rect.Left, rect.Top, rect.Width, rect.Height, work);
+        if (x != rect.Left || y != rect.Top)
+            ApplyWindowPositionPhysical(x, y);
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -145,14 +171,31 @@ public sealed class FloatingWindowBehavior
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (_isExpanded || _isDragging)
-            _fullWidth = GetWindowWidth();
+        if (_isDragging || !_isExpanded) return;
+        if (e.NewSize.Width > GetStripWidth() + 40)
+            _fullWidth = e.NewSize.Width;
+    }
+
+    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (_window.IsVisible)
+        {
+            if (_snapEdge != SnapEdge.None)
+                StartPresenceMonitor();
+            return;
+        }
+
+        _hideTimer.Stop();
+        StopPresenceMonitor();
     }
 
     private void OnWindowMouseEnter()
     {
         if (_isDragging) return;
         _hideTimer.Stop();
+        _cursorOutsideSince = null;
+        if (_isExpanded) return;
+        if (DateTime.UtcNow < _hoverExpandBlockedUntil) return;
         TryExpandFromHover(animated: true);
     }
 
@@ -161,31 +204,39 @@ public sealed class FloatingWindowBehavior
     /// </summary>
     private void OnPresenceTick()
     {
-        if (_isDragging || _isEditing() || _snapEdge == SnapEdge.None || _isAnimating)
+        if (_isDragging || _snapEdge == SnapEdge.None || _isAnimating)
             return;
-
-        var cursorOver = IsCursorOverWindow();
 
         if (!_isExpanded)
-        {
-            if (cursorOver)
-                TryExpandFromHover(animated: true);
             return;
-        }
 
-        if (cursorOver)
+        if (IsCursorOverWindow())
         {
             _hideTimer.Stop();
+            _cursorOutsideSince = null;
             return;
         }
 
-        if (DateTime.UtcNow - _lastExpandUtc < GetExpandGracePeriod())
+        _cursorOutsideSince ??= DateTime.UtcNow;
+
+        var elapsed = DateTime.UtcNow - _cursorOutsideSince.Value;
+        var grace = GetMouseLeaveGracePeriod();
+        var hideDelay = TimeSpan.FromMilliseconds(Math.Max(100, _getSettings().AutoHideDelayMs));
+
+        if (elapsed < grace)
             return;
+
+        if (elapsed >= grace + hideDelay)
+        {
+            CollapseToEdge(force: true);
+            _cursorOutsideSince = null;
+            return;
+        }
 
         if (!_hideTimer.IsEnabled)
         {
-            _hideTimer.Interval = TimeSpan.FromMilliseconds(
-                Math.Max(100, _getSettings().AutoHideDelayMs));
+            var remaining = (grace + hideDelay) - elapsed;
+            _hideTimer.Interval = remaining > TimeSpan.Zero ? remaining : TimeSpan.FromMilliseconds(50);
             _hideTimer.Start();
         }
     }
@@ -193,6 +244,7 @@ public sealed class FloatingWindowBehavior
     private void TryExpandFromHover(bool animated)
     {
         if (_isExpanded || _snapEdge == SnapEdge.None || _isAnimating || _isDragging) return;
+        if (DateTime.UtcNow < _hoverExpandBlockedUntil) return;
 
         _hideTimer.Stop();
         ExpandFromEdge(animated);
@@ -202,15 +254,18 @@ public sealed class FloatingWindowBehavior
     {
         _hideTimer.Stop();
         ClearAnimations();
+        _setCollapsedChrome(false);
         _window.Top = _expandedTop;
 
         var screen = GetWorkArea();
         var (targetLeft, targetWidth) = GetExpandedBounds(screen, _snapEdge);
+        RestoreExpandedMinWidth();
 
         if (!animated)
         {
             ApplyExpandedBounds(targetLeft, targetWidth);
             MarkExpanded();
+            StartPresenceMonitor();
             return;
         }
 
@@ -218,76 +273,63 @@ public sealed class FloatingWindowBehavior
         {
             ApplyExpandedBounds(targetLeft, targetWidth);
             MarkExpanded();
+            StartPresenceMonitor();
         });
     }
 
     private void TrySnapToEdge()
     {
-        var threshold = _getSettings().SnapDistancePx;
-        var screen = GetWorkArea();
-        _fullWidth = Math.Max(_fullWidth, GetWindowWidth());
-        _expandedTop = _window.Top;
+        DpiHelper.SyncWindowPositionFromNative(_window);
 
-        if (IsNearLeftEdge(screen, threshold))
+        if (!WindowBoundsHelper.TryGetWindowRectPhysical(_window, out var rect)
+            || !WindowBoundsHelper.TryGetWorkAreaForWindow(_window, out var work))
         {
-            _snapEdge = SnapEdge.Left;
-            _expandedLeft = screen.Left;
-            AlignToExpandedEdge();
             return;
         }
 
-        if (IsNearRightEdge(screen, threshold))
+        var thresholdPx = WindowBoundsHelper.GetSnapThresholdPx(_window, _getSettings().SnapDistancePx);
+        _fullWidth = Math.Max(_fullWidth, GetWindowWidth());
+        _expandedTop = _window.Top;
+
+        var edge = WindowBoundsHelper.DetectSnapEdge(rect.Left, rect.Right, work, thresholdPx);
+        if (edge == SnapEdge.Left)
+        {
+            _snapEdge = SnapEdge.Left;
+            _expandedLeft = GetWorkArea().Left;
+            CollapseToEdge(force: true);
+            StartPresenceMonitor();
+            return;
+        }
+
+        if (edge == SnapEdge.Right)
         {
             _snapEdge = SnapEdge.Right;
-            _expandedLeft = screen.Right - _fullWidth;
-            AlignToExpandedEdge();
+            _expandedLeft = GetWorkArea().Right - _fullWidth;
+            CollapseToEdge(force: true);
+            StartPresenceMonitor();
             return;
         }
 
         _snapEdge = SnapEdge.None;
         _isExpanded = true;
         _expandedLeft = _window.Left;
+        _setCollapsedChrome(false);
         RestoreExpandedMinWidth();
-        StopPresenceMonitor();
-    }
 
-    /// <summary>
-    /// 吸附到边缘但保持展开，等鼠标移开后再自动收起。
-    /// </summary>
-    private void AlignToExpandedEdge()
-    {
-        _hideTimer.Stop();
-        var screen = GetWorkArea();
-        var (left, width) = GetExpandedBounds(screen, _snapEdge);
-        ApplyExpandedBounds(left, width);
-        MarkExpanded();
-        StartPresenceMonitor();
+        var (clampedX, clampedY) = WindowBoundsHelper.ConstrainPosition(
+            rect.Left, rect.Top, rect.Width, rect.Height, work);
+        if (clampedX != rect.Left || clampedY != rect.Top)
+            ApplyWindowPositionPhysical(clampedX, clampedY);
+
+        StopPresenceMonitor();
     }
 
     private void CollapseToEdge(bool force = false)
     {
-        if (_isDragging || _snapEdge == SnapEdge.None || _isEditing()) return;
-        if (!force && (!_isExpanded || _isAnimating)) return;
+        if (_isDragging || _snapEdge == SnapEdge.None) return;
+        if (!force && (_isEditing() || !_isExpanded || _isAnimating)) return;
 
-        _fullWidth = Math.Max(_fullWidth, GetWindowWidth());
-
-        var screen = GetWorkArea();
-        var (targetLeft, targetWidth) = GetCollapsedBounds(screen, _snapEdge);
-        var animationMs = _getSettings().AnimationDurationMs;
-
-        if (animationMs <= 0)
-        {
-            ApplyCollapsedBounds((targetLeft, targetWidth));
-            StartPresenceMonitor();
-            return;
-        }
-
-        ClearAnimations();
-        RunBoundsAnimation(_window.Left, _window.Width, targetLeft, targetWidth, () =>
-        {
-            ApplyCollapsedBounds((targetLeft, targetWidth));
-            StartPresenceMonitor();
-        });
+        ApplyCollapsedBounds(GetCollapsedBounds(GetWorkArea(), _snapEdge));
     }
 
     private void RunBoundsAnimation(
@@ -317,25 +359,108 @@ public sealed class FloatingWindowBehavior
 
     private void ApplyCollapsedBounds((double Left, double Width) bounds)
     {
-        ClearAnimations();
+        CaptureFullWidthBeforeCollapse();
+
+        _setCollapsedChrome(true);
         EnsureCollapsedMinWidth(bounds.Width);
-        _window.Top = _expandedTop;
-        _window.Left = bounds.Left;
-        _window.Width = bounds.Width;
+        _window.UpdateLayout();
+
+        ClearAnimations();
+
+        var hwnd = new WindowInteropHelper(_window).Handle;
+        if (hwnd == IntPtr.Zero
+            || !WindowBoundsHelper.TryGetWindowRectPhysical(_window, out var rect)
+            || !WindowBoundsHelper.TryGetWorkAreaForWindow(_window, out var work))
+        {
+            var height = _window.Height > 0 ? _window.Height : _window.ActualHeight;
+            ApplyWindowBoundsDip(bounds.Left, _expandedTop, bounds.Width, height);
+            _isExpanded = false;
+            _isAnimating = false;
+            _hoverExpandBlockedUntil = DateTime.UtcNow.AddMilliseconds(800);
+            _cursorOutsideSince = null;
+            return;
+        }
+
+        var stripPx = Math.Max(20, (int)Math.Round(bounds.Width * DpiHelper.GetDpiScaleX(_window)));
+        var x = _snapEdge == SnapEdge.Left ? work.Left : work.Right - stripPx;
+
+        SetWindowPos(hwnd, HWND_TOPMOST, x, rect.Top, stripPx, rect.Height, SWP_NOACTIVATE);
+        DpiHelper.SyncWindowBoundsFromNative(_window);
+
         _isExpanded = false;
         _isAnimating = false;
+        _hoverExpandBlockedUntil = DateTime.UtcNow.AddMilliseconds(800);
+        _cursorOutsideSince = null;
+    }
+
+    private void CaptureFullWidthBeforeCollapse()
+    {
+        var width = GetWindowWidth();
+        if (width > GetStripWidth() + 40)
+            _fullWidth = Math.Max(_fullWidth, width);
+        else if (_fullWidth <= GetStripWidth() + 40)
+            _fullWidth = Math.Max(_fullWidth, _savedMinWidth > 0 ? _savedMinWidth : 380);
     }
 
     private void ApplyExpandedBounds(double left, double width)
     {
-        ClearAnimations();
         RestoreExpandedMinWidth();
-        _window.Top = _expandedTop;
-        _window.Left = left;
-        _window.Width = width;
+        var height = _window.Height > 0 ? _window.Height : _window.ActualHeight;
+        ApplyWindowBoundsDip(left, _expandedTop, width, height);
         _fullWidth = width;
         _isExpanded = true;
         _isAnimating = false;
+    }
+
+    private void ApplyWindowPositionPhysical(int x, int y)
+    {
+        var hwnd = new WindowInteropHelper(_window).Handle;
+        if (hwnd == IntPtr.Zero) return;
+
+        SetWindowPos(hwnd, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+        DpiHelper.SyncWindowPositionFromNative(_window);
+    }
+
+    private void ApplyWindowBoundsDip(double left, double top, double width, double height)
+    {
+        ClearAnimations();
+        _window.Left = left;
+        _window.Top = top;
+        _window.Width = width;
+        if (height > 0)
+            _window.Height = height;
+
+        var hwnd = new WindowInteropHelper(_window).Handle;
+        if (hwnd == IntPtr.Zero) return;
+
+        var source = PresentationSource.FromVisual(_window);
+        int widthPx;
+        int heightPx;
+        int xPx;
+        int yPx;
+
+        if (source?.CompositionTarget is not null)
+        {
+            var toDevice = source.CompositionTarget.TransformToDevice;
+            var topLeftPx = toDevice.Transform(new Point(left, top));
+            var bottomRightPx = toDevice.Transform(new Point(left + width, top + height));
+            xPx = (int)Math.Round(topLeftPx.X);
+            yPx = (int)Math.Round(topLeftPx.Y);
+            widthPx = Math.Max(1, (int)Math.Round(bottomRightPx.X - topLeftPx.X));
+            heightPx = Math.Max(1, (int)Math.Round(bottomRightPx.Y - topLeftPx.Y));
+        }
+        else
+        {
+            var scaleX = DpiHelper.GetDpiScaleX(_window);
+            var scaleY = DpiHelper.GetDpiScaleY(_window);
+            xPx = (int)Math.Round(left * scaleX);
+            yPx = (int)Math.Round(top * scaleY);
+            widthPx = Math.Max(1, (int)Math.Round(width * scaleX));
+            heightPx = Math.Max(1, (int)Math.Round(height * scaleY));
+        }
+
+        SetWindowPos(hwnd, HWND_TOPMOST, xPx, yPx, widthPx, heightPx, SWP_NOACTIVATE);
+        DpiHelper.SyncWindowBoundsFromNative(_window);
     }
 
     private (double Left, double Width) GetCollapsedBounds(Rect screen, SnapEdge edge)
@@ -361,13 +486,18 @@ public sealed class FloatingWindowBehavior
     {
         if (_window.MinWidth > stripWidth)
             _savedMinWidth = _window.MinWidth;
+        if (_window.MaxWidth < double.PositiveInfinity)
+            _savedMaxWidth = _window.MaxWidth;
         _window.MinWidth = stripWidth;
+        _window.MaxWidth = stripWidth;
     }
 
     private void RestoreExpandedMinWidth()
     {
         if (_savedMinWidth > 0)
             _window.MinWidth = _savedMinWidth;
+        if (_savedMaxWidth > 0)
+            _window.MaxWidth = _savedMaxWidth;
     }
 
     private void StartPresenceMonitor()
@@ -380,26 +510,25 @@ public sealed class FloatingWindowBehavior
 
     private bool IsCursorOverWindow()
     {
+        if (!_window.IsVisible) return false;
         if (!GetCursorPos(out var cursor)) return false;
 
         var handle = new WindowInteropHelper(_window).Handle;
         if (handle == IntPtr.Zero || !GetWindowRect(handle, out var rect)) return false;
 
-        const int padding = 2;
-        return cursor.X >= rect.Left - padding
-               && cursor.X <= rect.Right + padding
-               && cursor.Y >= rect.Top - padding
-               && cursor.Y <= rect.Bottom + padding;
+        const int pxPadding = 4;
+        return cursor.X >= rect.Left + pxPadding
+               && cursor.X <= rect.Right - pxPadding
+               && cursor.Y >= rect.Top + pxPadding
+               && cursor.Y <= rect.Bottom - pxPadding;
     }
 
-    private void MarkExpanded() =>
-        _lastExpandUtc = DateTime.UtcNow;
+    private void MarkExpanded() => _cursorOutsideSince = null;
 
-    private TimeSpan GetExpandGracePeriod()
+    private TimeSpan GetMouseLeaveGracePeriod()
     {
-        var animationMs = _getSettings().AnimationDurationMs;
-        var hideDelayMs = Math.Max(100, _getSettings().AutoHideDelayMs);
-        return TimeSpan.FromMilliseconds(animationMs + hideDelayMs + 200);
+        var animationMs = _isAnimating ? _getSettings().AnimationDurationMs : 0;
+        return TimeSpan.FromMilliseconds(animationMs + 200);
     }
 
     private void ClearAnimations()
@@ -410,37 +539,32 @@ public sealed class FloatingWindowBehavior
         _pendingAnimationCount = 0;
     }
 
-    private double GetWindowWidth() =>
-        _window.ActualWidth > 0 ? _window.ActualWidth : _window.Width;
-
-    private bool IsNearLeftEdge(Rect screen, double threshold) =>
-        _window.Left - screen.Left <= threshold;
-
-    private bool IsNearRightEdge(Rect screen, double threshold)
+    private double GetWindowWidth()
     {
-        var right = _window.Left + GetWindowWidth();
-        return screen.Right - right <= threshold;
+        var hwnd = new WindowInteropHelper(_window).Handle;
+        if (hwnd != IntPtr.Zero && GetWindowRect(hwnd, out var rect))
+        {
+            var source = PresentationSource.FromVisual(_window);
+            if (source?.CompositionTarget is not null)
+            {
+                var dipRect = DpiHelper.PhysicalRectToDipRect(
+                    _window, rect.Left, rect.Top, rect.Right, rect.Bottom);
+                return dipRect.Width;
+            }
+        }
+
+        return _window.ActualWidth > 0 ? _window.ActualWidth : _window.Width;
     }
 
     private Rect GetWorkArea()
     {
-        var handle = new WindowInteropHelper(_window).Handle;
-        if (handle != IntPtr.Zero)
+        if (WindowBoundsHelper.TryGetWorkAreaForWindow(_window, out var work))
         {
-            var monitor = MonitorFromWindow(handle, MonitorDefaultToNearest);
-            var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
-            if (GetMonitorInfo(monitor, ref info))
+            var source = PresentationSource.FromVisual(_window);
+            if (source?.CompositionTarget is not null)
             {
-                var source = PresentationSource.FromVisual(_window);
-                if (source?.CompositionTarget is not null)
-                {
-                    return DpiHelper.PhysicalRectToDipRect(
-                        _window,
-                        info.rcWork.Left,
-                        info.rcWork.Top,
-                        info.rcWork.Right,
-                        info.rcWork.Bottom);
-                }
+                return DpiHelper.PhysicalRectToDipRect(
+                    _window, work.Left, work.Top, work.Right, work.Bottom);
             }
         }
 
@@ -453,7 +577,6 @@ public sealed class FloatingWindowBehavior
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOACTIVATE = 0x0010;
-    private const uint MonitorDefaultToNearest = 2;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT
@@ -467,15 +590,6 @@ public sealed class FloatingWindowBehavior
         public int Left, Top, Right, Bottom;
     }
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
-    private struct MONITORINFO
-    {
-        public int cbSize;
-        public RECT rcMonitor;
-        public RECT rcWork;
-        public uint dwFlags;
-    }
-
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out POINT lpPoint);
 
@@ -484,12 +598,6 @@ public sealed class FloatingWindowBehavior
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
     #endregion
 }

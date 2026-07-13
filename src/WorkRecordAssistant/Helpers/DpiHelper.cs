@@ -19,6 +19,9 @@ public static class DpiHelper
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
+
     public static void SyncWindowPositionFromNative(Window window)
     {
         var handle = new WindowInteropHelper(window).Handle;
@@ -48,19 +51,49 @@ public static class DpiHelper
 
     public static double GetDpiScaleX(Window window)
     {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle != IntPtr.Zero)
+        {
+            var dpi = GetDpiForWindow(handle);
+            if (dpi > 0)
+                return dpi / 96.0;
+        }
+
         var source = PresentationSource.FromVisual(window);
         return source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
     }
 
+    public static double GetDpiScaleY(Window window) => GetDpiScaleX(window);
+
     public static Rect PhysicalRectToDipRect(Window window, int left, int top, int right, int bottom)
     {
         var source = PresentationSource.FromVisual(window);
-        if (source?.CompositionTarget is null)
-            return new Rect(left, top, right - left, bottom - top);
+        if (source?.CompositionTarget is not null)
+        {
+            var fromDevice = source.CompositionTarget.TransformFromDevice;
+            var topLeft = fromDevice.Transform(new Point(left, top));
+            var bottomRight = fromDevice.Transform(new Point(right, bottom));
+            return new Rect(topLeft.X, topLeft.Y, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+        }
 
-        var fromDevice = source.CompositionTarget.TransformFromDevice;
-        var topLeft = fromDevice.Transform(new Point(left, top));
-        var bottomRight = fromDevice.Transform(new Point(right, bottom));
-        return new Rect(topLeft.X, topLeft.Y, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+        var scaleX = GetDpiScaleX(window);
+        var scaleY = GetDpiScaleY(window);
+        return new Rect(
+            left / scaleX,
+            top / scaleY,
+            (right - left) / scaleX,
+            (bottom - top) / scaleY);
+    }
+
+    public static void SyncWindowBoundsFromNative(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero || !GetWindowRect(handle, out var rect)) return;
+
+        var dip = PhysicalRectToDipRect(window, rect.Left, rect.Top, rect.Right, rect.Bottom);
+        window.Left = dip.Left;
+        window.Top = dip.Top;
+        window.Width = dip.Width;
+        window.Height = dip.Height;
     }
 }

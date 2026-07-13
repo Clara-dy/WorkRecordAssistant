@@ -8,14 +8,14 @@ namespace WorkRecordAssistant.Helpers;
 /// </summary>
 public static class WindowGeometryHelper
 {
-    public const double DefaultWidth = 320;
+    public const double DefaultWidth = 380;
     public const double DefaultHeight = 520;
     public const double MaxWidth = 480;
     public const double MaxHeight = 900;
 
     public static void SanitizeSettings(AppSettings settings)
     {
-        settings.WindowWidth = Clamp(settings.WindowWidth, 280, MaxWidth);
+        settings.WindowWidth = Clamp(settings.WindowWidth, 380, MaxWidth);
         settings.WindowHeight = Clamp(settings.WindowHeight, 400, MaxHeight);
 
         if (!settings.WindowLeft.HasValue || !settings.WindowTop.HasValue)

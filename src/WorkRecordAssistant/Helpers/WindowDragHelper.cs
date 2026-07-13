@@ -2,12 +2,11 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
-using System.Windows.Media;
 
 namespace WorkRecordAssistant.Helpers;
 
 /// <summary>
-/// 使用 Win32 物理坐标拖动窗口，避免高 DPI 下 WPF Left/Top 抖动。
+/// 使用 Win32 物理坐标拖动窗口，拖动时限制在工作区内并支持贴边磁吸。
 /// </summary>
 public sealed class WindowDragHelper
 {
@@ -16,12 +15,17 @@ public sealed class WindowDragHelper
     private const uint SWP_NOACTIVATE = 0x0010;
 
     private readonly Window _window;
+    private readonly Func<int> _getSnapDistancePx;
     private int _screenOffsetX;
     private int _screenOffsetY;
     private int _startRectLeft;
     private int _startRectTop;
 
-    public WindowDragHelper(Window window) => _window = window;
+    public WindowDragHelper(Window window, Func<int> getSnapDistancePx)
+    {
+        _window = window;
+        _getSnapDistancePx = getSnapDistancePx;
+    }
 
     public bool IsDragging { get; private set; }
 
@@ -45,15 +49,21 @@ public sealed class WindowDragHelper
 
         var hwnd = EnsureHandle();
         if (!GetCursorPos(out var cursor)) return;
+        if (!GetWindowRect(hwnd, out var rect)) return;
 
-        SetWindowPos(
-            hwnd,
-            HWND_TOPMOST,
-            cursor.X - _screenOffsetX,
-            cursor.Y - _screenOffsetY,
-            0,
-            0,
-            SWP_NOSIZE | SWP_NOACTIVATE);
+        var width = rect.Width;
+        var height = rect.Height;
+        var x = cursor.X - _screenOffsetX;
+        var y = cursor.Y - _screenOffsetY;
+
+        if (WindowBoundsHelper.TryResolveWorkArea(_window, x, y, width, height, out var work))
+        {
+            var threshold = WindowBoundsHelper.GetSnapThresholdPx(_window, _getSnapDistancePx());
+            x = WindowBoundsHelper.ApplyHorizontalEdgeMagnet(x, width, work, threshold);
+            (x, y) = WindowBoundsHelper.ConstrainPosition(x, y, width, height, work);
+        }
+
+        SetWindowPos(hwnd, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
     public void End(out bool didMove)
@@ -72,10 +82,30 @@ public sealed class WindowDragHelper
         GetWindowRect(hwnd, out var rect);
         didMove = Math.Abs(rect.Left - _startRectLeft) > 4 || Math.Abs(rect.Top - _startRectTop) > 4;
 
+        ClampWindowToWorkArea(hwnd, rect);
+
         SyncWpfPosition();
     }
 
     public void SyncWpfPosition() => DpiHelper.SyncWindowPositionFromNative(_window);
+
+    public void ClampWindowToWorkArea()
+    {
+        var hwnd = EnsureHandle();
+        if (!GetWindowRect(hwnd, out var rect)) return;
+        ClampWindowToWorkArea(hwnd, rect);
+        SyncWpfPosition();
+    }
+
+    private void ClampWindowToWorkArea(IntPtr hwnd, WindowBoundsHelper.Rect rect)
+    {
+        if (!WindowBoundsHelper.TryGetWorkAreaForWindow(_window, out var work)) return;
+
+        var (x, y) = WindowBoundsHelper.ConstrainPosition(
+            rect.Left, rect.Top, rect.Width, rect.Height, work);
+        if (x != rect.Left || y != rect.Top)
+            SetWindowPos(hwnd, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+    }
 
     private IntPtr EnsureHandle()
     {
@@ -91,17 +121,11 @@ public sealed class WindowDragHelper
         public int X, Y;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RECT
-    {
-        public int Left, Top, Right, Bottom;
-    }
-
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out POINT lpPoint);
 
     [DllImport("user32.dll")]
-    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    private static extern bool GetWindowRect(IntPtr hWnd, out WindowBoundsHelper.Rect lpRect);
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(

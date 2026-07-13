@@ -50,7 +50,7 @@ public class AppSettings
 
     public double? WindowTop { get; set; }
 
-    public double WindowWidth { get; set; } = 320;
+    public double WindowWidth { get; set; } = 380;
 
     public double WindowHeight { get; set; } = 520;
 
