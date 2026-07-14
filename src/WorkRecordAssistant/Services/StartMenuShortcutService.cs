@@ -37,13 +37,20 @@ public static class StartMenuShortcutService
 
     private static string ResolveShortcutTarget(string executablePath)
     {
-        var installExe = Path.Combine(
+        var preferredInstallExe = @"D:\WorkRecordAssistant\App\WorkRecordAssistant.exe";
+        if (File.Exists(preferredInstallExe))
+            return preferredInstallExe;
+
+        var legacyInstallExe = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Programs",
             "WorkRecordAssistant",
             "WorkRecordAssistant.exe");
 
-        return File.Exists(installExe) ? installExe : executablePath;
+        if (File.Exists(legacyInstallExe))
+            return legacyInstallExe;
+
+        return executablePath;
     }
 
     private static bool CanCreateShortcut(string executablePath)
