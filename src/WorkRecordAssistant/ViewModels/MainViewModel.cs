@@ -29,6 +29,8 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<QuickButtonViewModel> QuickButtons { get; } = [];
 
+    public ObservableCollection<SubTaskTemplate> SubTaskTemplates { get; } = [];
+
     [ObservableProperty]
     private DateTime _selectedDate = DateTime.Today;
 
@@ -60,6 +62,7 @@ public partial class MainViewModel : ObservableObject
     {
         ShowRecordTime = _settingsService.Current.ShowRecordTime;
         await LoadQuickButtonsAsync();
+        await LoadSubTaskTemplatesAsync();
         await LoadTasksAsync();
     }
 
@@ -207,6 +210,43 @@ public partial class MainViewModel : ObservableObject
         ShowStatus(scope == CopyTaskScope.All ? "已复制全部任务" : "已复制已完成任务");
     }
 
+    public void CopyRecord(WorkRecordItemViewModel record, bool includeSubTasks)
+    {
+        var lines = new List<string>
+        {
+            VersionDisplayHelper.BuildCopyLine(record.Content, record.VersionNumber, record.VersionInfo)
+        };
+
+        if (includeSubTasks)
+        {
+            foreach (var sub in record.SubTasks)
+            {
+                lines.Add(VersionDisplayHelper.BuildCopyLine(
+                    sub.Content, sub.VersionNumber, sub.VersionInfo, "  - "));
+            }
+        }
+
+        if (!ClipboardService.CopyText(string.Join('\n', lines)))
+        {
+            ShowStatus("复制失败，请重试");
+            return;
+        }
+
+        ShowStatus(includeSubTasks ? "已复制任务及子任务" : "已复制任务");
+    }
+
+    public void CopySubTask(SubTaskItemViewModel sub)
+    {
+        var text = VersionDisplayHelper.BuildCopyLine(sub.Content, sub.VersionNumber, sub.VersionInfo);
+        if (!ClipboardService.CopyText(text))
+        {
+            ShowStatus("复制失败，请重试");
+            return;
+        }
+
+        ShowStatus("已复制子任务");
+    }
+
     public async Task SetRecordVersionAsync(
         WorkRecordItemViewModel record, string? versionNumber, string? versionInfo)
     {
@@ -229,10 +269,19 @@ public partial class MainViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(parent.NewSubTaskText)) return;
 
-        var sub = await _dataService.AddSubTaskAsync(TaskParentType.WorkRecord, parent.Id, parent.NewSubTaskText);
-        parent.SubTasks.Add(new SubTaskItemViewModel(sub));
+        await AddSubTaskAsync(parent, parent.NewSubTaskText);
         parent.NewSubTaskText = string.Empty;
         parent.IsAddingSubTask = false;
+    }
+
+    public async Task AddSubTaskAsync(IRecordListItemViewModel parent, string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return;
+
+        var sub = await _dataService.AddSubTaskAsync(TaskParentType.WorkRecord, parent.Id, content);
+        var showTime = parent is WorkRecordItemViewModel wr ? wr.ShowTime : ShowRecordTime;
+        parent.SubTasks.Add(new SubTaskItemViewModel(sub, showTime));
+        SortSubTasks(parent.SubTasks);
         ShowStatus("已添加子任务");
     }
 
@@ -426,6 +475,20 @@ public partial class MainViewModel : ObservableObject
                 SortOrder = button.SortOrder
             });
         }
+    }
+
+    public async Task LoadSubTaskTemplatesAsync()
+    {
+        var templates = await _dataService.GetSubTaskTemplatesAsync();
+        SubTaskTemplates.Clear();
+        foreach (var template in templates)
+            SubTaskTemplates.Add(template);
+    }
+
+    public async Task SaveSubTaskTemplatesAsync(IEnumerable<SubTaskTemplate> templates)
+    {
+        await _dataService.SaveSubTaskTemplatesAsync(templates);
+        await LoadSubTaskTemplatesAsync();
     }
 
     public async Task SaveWindowStateAsync(double left, double top, double width, double height, SnapEdge snapEdge)

@@ -84,6 +84,16 @@ public sealed class SqliteDataService : IDataService
             """;
         await ExecuteNonQueryAsync(connection, createSubTasks);
         await MigrateVersionColumnsAsync(connection);
+        await RepairMismatchedCreatedAtAsync(connection);
+
+        var createSubTaskTemplates = """
+            CREATE TABLE IF NOT EXISTS SubTaskTemplates (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Content TEXT NOT NULL,
+                SortOrder INTEGER NOT NULL DEFAULT 0
+            );
+            """;
+        await ExecuteNonQueryAsync(connection, createSubTaskTemplates);
 
         await SeedDefaultButtonsIfEmptyAsync(connection);
     }
@@ -120,15 +130,19 @@ public sealed class SqliteDataService : IDataService
         var today = DateTime.Today.ToString("yyyy-MM-dd");
         var records = new List<WorkRecord>();
         await using var command = connection.CreateCommand();
+        // Incomplete: carry forward through today; also show tasks created for the
+        // exact view day (so future-dated tasks appear when browsing that day).
         command.CommandText = """
             SELECT Id, Date, Content, CreatedAt, UpdatedAt, SortOrder, IsCompleted, CompletedAt, IsStarred, VersionNumber, VersionInfo
             FROM WorkRecords
             WHERE (
                 (IsCompleted = 0
-                 AND date(CreatedAt) <= $viewDate
-                 AND $viewDate <= $today)
+                 AND (
+                    (Date <= $viewDate AND $viewDate <= $today)
+                    OR Date = $viewDate
+                 ))
                 OR (IsCompleted = 1
-                    AND date(CreatedAt) <= $viewDate
+                    AND Date <= $viewDate
                     AND date(CompletedAt) >= $viewDate)
               )
             ORDER BY IsCompleted, SortOrder, CreatedAt
@@ -166,6 +180,9 @@ public sealed class SqliteDataService : IDataService
     public async Task<WorkRecord> AddRecordAsync(string date, string content)
     {
         var now = DateTime.Now;
+        // CreatedAt must belong to the selected day; using DateTime.Now alone
+        // would make past-day tasks only appear from "today" onward.
+        var createdAt = ResolveCreatedAtForDate(date, now);
         var sortOrder = await GetNextSortOrderAsync(date);
 
         await using var connection = CreateConnection();
@@ -179,7 +196,7 @@ public sealed class SqliteDataService : IDataService
             """;
         command.Parameters.AddWithValue("$date", date);
         command.Parameters.AddWithValue("$content", content.Trim());
-        command.Parameters.AddWithValue("$createdAt", now.ToString("O"));
+        command.Parameters.AddWithValue("$createdAt", createdAt.ToString("O"));
         command.Parameters.AddWithValue("$updatedAt", now.ToString("O"));
         command.Parameters.AddWithValue("$sortOrder", sortOrder);
 
@@ -189,11 +206,21 @@ public sealed class SqliteDataService : IDataService
             Id = id,
             Date = date,
             Content = content.Trim(),
-            CreatedAt = now,
+            CreatedAt = createdAt,
             UpdatedAt = now,
             SortOrder = sortOrder,
             IsCompleted = false
         };
+    }
+
+    private static DateTime ResolveCreatedAtForDate(string date, DateTime now)
+    {
+        var dateOnly = DateTime.ParseExact(
+            date, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        if (dateOnly.Date == now.Date)
+            return now;
+
+        return dateOnly.Date.Add(now.TimeOfDay);
     }
 
     public async Task CompleteRecordAsync(int id, string completionDate)
@@ -745,6 +772,66 @@ public sealed class SqliteDataService : IDataService
         await transaction.CommitAsync();
     }
 
+    public async Task<IReadOnlyList<SubTaskTemplate>> GetSubTaskTemplatesAsync()
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+
+        var templates = new List<SubTaskTemplate>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, Content, SortOrder
+            FROM SubTaskTemplates
+            ORDER BY SortOrder
+            """;
+
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            templates.Add(new SubTaskTemplate
+            {
+                Id = reader.GetInt32(0),
+                Content = reader.GetString(1),
+                SortOrder = reader.GetInt32(2)
+            });
+        }
+
+        return templates;
+    }
+
+    public async Task SaveSubTaskTemplatesAsync(IEnumerable<SubTaskTemplate> templates)
+    {
+        await using var connection = CreateConnection();
+        await connection.OpenAsync();
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync();
+
+        await using (var delete = connection.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText = "DELETE FROM SubTaskTemplates";
+            await delete.ExecuteNonQueryAsync();
+        }
+
+        var order = 0;
+        foreach (var template in templates)
+        {
+            var content = template.Content.Trim();
+            if (string.IsNullOrEmpty(content)) continue;
+
+            await using var insert = connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO SubTaskTemplates (Content, SortOrder)
+                VALUES ($content, $sortOrder)
+                """;
+            insert.Parameters.AddWithValue("$content", content);
+            insert.Parameters.AddWithValue("$sortOrder", order++);
+            await insert.ExecuteNonQueryAsync();
+        }
+
+        await transaction.CommitAsync();
+    }
+
     public async Task ExportAllAsync(string filePath)
     {
         var payload = new ExportPayload
@@ -752,7 +839,8 @@ public sealed class SqliteDataService : IDataService
             Records = await GetAllRecordsAsync(),
             LongTermTasks = await GetAllLongTermTasksAsync(),
             SubTasks = await GetAllSubTasksAsync(),
-            QuickButtons = (await GetQuickButtonsAsync()).ToList()
+            QuickButtons = (await GetQuickButtonsAsync()).ToList(),
+            SubTaskTemplates = (await GetSubTaskTemplatesAsync()).ToList()
         };
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
@@ -849,6 +937,7 @@ public sealed class SqliteDataService : IDataService
 
         await transaction.CommitAsync();
         await SaveQuickButtonsAsync(payload.QuickButtons);
+        await SaveSubTaskTemplatesAsync(payload.SubTaskTemplates ?? []);
     }
 
     public async Task BackupAsync(string filePath)
@@ -1032,6 +1121,45 @@ public sealed class SqliteDataService : IDataService
         }
     }
 
+    /// <summary>
+    /// Repair rows where Date and CreatedAt disagree (e.g. added while viewing a past day).
+    /// </summary>
+    private static async Task RepairMismatchedCreatedAtAsync(SqliteConnection connection)
+    {
+        await using var select = connection.CreateCommand();
+        select.CommandText = """
+            SELECT Id, Date, CreatedAt
+            FROM WorkRecords
+            WHERE date(CreatedAt) != Date
+            """;
+
+        var fixes = new List<(int Id, string CreatedAt)>();
+        await using (var reader = await select.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                var id = reader.GetInt32(0);
+                var date = reader.GetString(1);
+                var createdAt = DateTime.Parse(reader.GetString(2));
+                var repaired = ResolveCreatedAtForDate(date, createdAt);
+                fixes.Add((id, repaired.ToString("O")));
+            }
+        }
+
+        foreach (var (id, createdAt) in fixes)
+        {
+            await using var update = connection.CreateCommand();
+            update.CommandText = """
+                UPDATE WorkRecords
+                SET CreatedAt = $createdAt
+                WHERE Id = $id
+                """;
+            update.Parameters.AddWithValue("$createdAt", createdAt);
+            update.Parameters.AddWithValue("$id", id);
+            await update.ExecuteNonQueryAsync();
+        }
+    }
+
     private static async Task MigrateLongTermToStarredAsync(SqliteConnection connection)
     {
         await using var countCmd = connection.CreateCommand();
@@ -1176,5 +1304,6 @@ public sealed class SqliteDataService : IDataService
         public List<LongTermTask> LongTermTasks { get; set; } = [];
         public List<TaskSubItem> SubTasks { get; set; } = [];
         public List<QuickButton> QuickButtons { get; set; } = [];
+        public List<SubTaskTemplate> SubTaskTemplates { get; set; } = [];
     }
 }

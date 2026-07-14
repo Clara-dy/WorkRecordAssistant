@@ -84,9 +84,9 @@ public partial class SubTaskListItem : UserControl
     {
         SubTaskHeaderArea.ToolTip = ViewModel switch
         {
-            { IsCompleted: true } => "单击恢复未完成 · 双击修改 · 左滑删除 · Enter 保存",
+            { IsCompleted: true } => "单击恢复未完成 · 双击修改 · 左滑删除 · Enter 保存 · 右键复制/版本号",
             { IsEditing: true } => "Enter 保存 · Shift+Enter 换行 · Esc 取消",
-            _ => "单击完成 · 双击修改 · 左滑删除 · 右键版本号"
+            _ => "单击完成 · 双击修改 · 左滑删除 · 右键复制/版本号"
         };
     }
 
@@ -95,6 +95,13 @@ public partial class SubTaskListItem : UserControl
         if (ViewModel?.IsEditing == true) return;
         SubTaskHeaderArea.ContextMenu!.IsOpen = true;
         e.Handled = true;
+    }
+
+    private void CopyMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null) return;
+        if (Window.GetWindow(this)?.DataContext is MainViewModel vm)
+            vm.CopySubTask(ViewModel);
     }
 
     private async void SetVersionMenuItem_Click(object sender, RoutedEventArgs e)

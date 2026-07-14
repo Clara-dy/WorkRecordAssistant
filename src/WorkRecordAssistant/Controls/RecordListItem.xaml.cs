@@ -90,9 +90,9 @@ public partial class RecordListItem : UserControl
     {
         TaskHeaderArea.ToolTip = ViewModel switch
         {
-            { IsCompleted: true } => "单击恢复未完成 · 双击修改 · 左滑删除 · 右键星级/版本号",
-            { IsEditing: false } => "单击完成 · 双击修改 · 左滑删除 · 右键星级/版本号",
-            _ => "双击修改 · 左滑删除 · 右键星级/版本号"
+            { IsCompleted: true } => "单击恢复未完成 · 双击修改 · 左滑删除 · 右键星级/版本号/复制/快速子任务",
+            { IsEditing: false } => "单击完成 · 双击修改 · 左滑删除 · 右键星级/版本号/复制/快速子任务",
+            _ => "双击修改 · 左滑删除 · 右键星级/版本号/复制/快速子任务"
         };
     }
 
@@ -215,11 +215,97 @@ public partial class RecordListItem : UserControl
             await vm.SetRecordVersionAsync(record, dialog.VersionNumber, dialog.VersionInfo);
     }
 
+    private void CopyWithSubTasks_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not WorkRecordItemViewModel record) return;
+        if (Window.GetWindow(this)?.DataContext is MainViewModel vm)
+            vm.CopyRecord(record, includeSubTasks: true);
+    }
+
+    private void CopyTaskOnly_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not WorkRecordItemViewModel record) return;
+        if (Window.GetWindow(this)?.DataContext is MainViewModel vm)
+            vm.CopyRecord(record, includeSubTasks: false);
+    }
+
     private void TaskContextMenu_Opened(object sender, RoutedEventArgs e)
     {
         var isStarred = ViewModel?.IsStarred == true;
         StarMenuItem.Visibility = isStarred ? Visibility.Collapsed : Visibility.Visible;
         UnstarMenuItem.Visibility = isStarred ? Visibility.Visible : Visibility.Collapsed;
+        RebuildQuickSubTaskMenu();
+    }
+
+    private void RebuildQuickSubTaskMenu()
+    {
+        QuickSubTaskMenu.Items.Clear();
+
+        if (Window.GetWindow(this)?.DataContext is not MainViewModel vm)
+        {
+            QuickSubTaskMenu.Items.Add(new MenuItem
+            {
+                Header = "（暂无）",
+                IsEnabled = false
+            });
+            return;
+        }
+
+        if (vm.SubTaskTemplates.Count == 0)
+        {
+            QuickSubTaskMenu.Items.Add(new MenuItem
+            {
+                Header = "（暂无，点管理添加）",
+                IsEnabled = false
+            });
+        }
+        else
+        {
+            foreach (var template in vm.SubTaskTemplates)
+            {
+                var item = new MenuItem
+                {
+                    Header = TruncateMenuHeader(template.Content),
+                    Tag = template.Content,
+                    ToolTip = template.Content
+                };
+                item.Click += QuickSubTaskTemplate_Click;
+                QuickSubTaskMenu.Items.Add(item);
+            }
+        }
+
+        QuickSubTaskMenu.Items.Add(new Separator());
+        var manageItem = new MenuItem { Header = "管理快速列表…" };
+        manageItem.Click += ManageQuickSubTasks_Click;
+        QuickSubTaskMenu.Items.Add(manageItem);
+    }
+
+    private static string TruncateMenuHeader(string content)
+    {
+        var text = content.Replace('\n', ' ').Replace('\r', ' ').Trim();
+        return text.Length <= 40 ? text : text[..40] + "…";
+    }
+
+    private async void QuickSubTaskTemplate_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null) return;
+        if (sender is not MenuItem { Tag: string content }) return;
+        if (Window.GetWindow(this)?.DataContext is not MainViewModel vm) return;
+
+        await vm.AddSubTaskAsync(ViewModel, content);
+    }
+
+    private async void ManageQuickSubTasks_Click(object sender, RoutedEventArgs e)
+    {
+        if (Window.GetWindow(this)?.DataContext is not MainViewModel vm) return;
+
+        var dialog = new SubTaskTemplateManageDialog(vm.SubTaskTemplates)
+        {
+            Owner = Window.GetWindow(this)
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        await vm.SaveSubTaskTemplatesAsync(dialog.ResultTemplates);
     }
 
     private void TaskHeaderArea_MouseRightButtonUp(object sender, MouseButtonEventArgs e)

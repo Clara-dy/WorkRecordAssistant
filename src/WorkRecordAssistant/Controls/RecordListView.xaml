@@ -86,7 +86,12 @@
                      ItemsSource="{Binding TaskItems, RelativeSource={RelativeSource AncestorType=UserControl}}"
                      BorderThickness="0"
                      Background="Transparent"
+                     Padding="0,2,0,16"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.CanContentScroll="False"
+                     VirtualizingPanel.ScrollUnit="Pixel"
+                     VirtualizingPanel.IsVirtualizing="True"
                      Visibility="{Binding TaskItems.Count, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource CountVis}}">
                 <ListBox.ItemContainerStyle>
                     <StaticResource ResourceKey="RecordListBoxItemStyle" />

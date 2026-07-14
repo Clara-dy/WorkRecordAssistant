@@ -35,6 +35,8 @@
                     MouseRightButtonUp="SubTaskHeaderArea_MouseRightButtonUp">
                 <Border.ContextMenu>
                     <ContextMenu>
+                        <MenuItem Header="复制"
+                                  Click="CopyMenuItem_Click" />
                         <MenuItem Header="设置版本号"
                                   Click="SetVersionMenuItem_Click" />
                     </ContextMenu>
@@ -53,32 +55,46 @@
                             Cursor="Hand"
                             ToolTip="单击切换完成"
                             MouseLeftButtonDown="CompleteToggle_MouseLeftButtonDown">
-                        <Grid>
-                            <Ellipse Width="12"
-                                     Height="12"
+                        <Grid Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <!-- 子任务未完成：空心圆 -->
+                            <Ellipse Width="11"
+                                     Height="11"
                                      StrokeThickness="1.5"
+                                     Stroke="{DynamicResource TextSecondaryBrush}"
+                                     Fill="Transparent"
+                                     HorizontalAlignment="Center"
                                      VerticalAlignment="Center"
-                                     HorizontalAlignment="Center">
+                                     Opacity="0.85">
                                 <Ellipse.Style>
                                     <Style TargetType="Ellipse">
-                                        <Setter Property="Stroke" Value="{DynamicResource TaskIncompleteBrush}" />
-                                        <Setter Property="Fill" Value="Transparent" />
+                                        <Setter Property="Visibility" Value="Visible" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsCompleted}" Value="True">
-                                                <Setter Property="Stroke" Value="{DynamicResource TaskCompleteBrush}" />
-                                                <Setter Property="Fill" Value="{DynamicResource TaskCompleteBrush}" />
+                                                <Setter Property="Visibility" Value="Collapsed" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
                                 </Ellipse.Style>
                             </Ellipse>
-                            <TextBlock Text="✓"
-                                       FontSize="8"
-                                       FontWeight="Bold"
-                                       Foreground="White"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       Visibility="{Binding IsCompleted, Converter={StaticResource BoolVis}}" />
+                            <!-- 子任务已完成：实心圆 + 勾 -->
+                            <Grid Visibility="{Binding IsCompleted, Converter={StaticResource BoolVis}}">
+                                <Ellipse Width="11"
+                                         Height="11"
+                                         Fill="{DynamicResource TaskCompleteBrush}"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center" />
+                                <Path Data="M3.2,7 L5.6,9.4 L10.2,4.2"
+                                      Stroke="White"
+                                      StrokeThickness="1.5"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      StrokeLineJoin="Round"
+                                      Width="14"
+                                      Height="14"
+                                      Stretch="None"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
+                            </Grid>
                         </Grid>
                     </Border>
 
@@ -88,30 +104,30 @@
                                         Margin="0,0,0,2"
                                         Visibility="{Binding ShowTimeVersionHint, Converter={StaticResource BoolVis}}">
                                 <TextBlock Text="{Binding TimePart}"
-                                           FontSize="10"
+                                           FontSize="12"
                                            Foreground="{DynamicResource TextSecondaryBrush}"
                                            Margin="0,0,6,0"
                                            Visibility="{Binding ShowTimePart, Converter={StaticResource BoolVis}}" />
                                 <TextBlock Text="{Binding VersionNumberPart}"
-                                           FontSize="10"
+                                           FontSize="12"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource VersionTextBrush}"
                                            Margin="0,0,6,0"
                                            Visibility="{Binding ShowVersionNumberPart, Converter={StaticResource BoolVis}}" />
                                 <TextBlock Text="·"
-                                           FontSize="10"
+                                           FontSize="12"
                                            Foreground="{DynamicResource VersionTextBrush}"
                                            Margin="0,0,6,0"
                                            Visibility="{Binding ShowVersionInfoPart, Converter={StaticResource BoolVis}}" />
                                 <TextBlock Text="{Binding VersionInfoPart}"
-                                           FontSize="10"
+                                           FontSize="12"
                                            Foreground="{DynamicResource VersionTextBrush}"
                                            TextWrapping="Wrap"
                                            Visibility="{Binding ShowVersionInfoPart, Converter={StaticResource BoolVis}}" />
                             </StackPanel>
                             <TextBlock Text="{Binding DisplayText}"
                                    TextWrapping="Wrap"
-                                   FontSize="12"
+                                   FontSize="14"
                                    VerticalAlignment="Center">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
@@ -148,7 +164,7 @@
                                      TextWrapping="Wrap"
                                      AcceptsReturn="True"
                                      MinHeight="28"
-                                     FontSize="12"
+                                     FontSize="14"
                                      Style="{StaticResource RoundedTextBox}"
                                      PreviewKeyDown="EditTextBox_PreviewKeyDown" />
                         </StackPanel>

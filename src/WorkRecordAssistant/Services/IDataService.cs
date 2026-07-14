@@ -68,6 +68,10 @@ public interface IDataService
 
     Task SaveQuickButtonsAsync(IEnumerable<Models.QuickButton> buttons);
 
+    Task<IReadOnlyList<Models.SubTaskTemplate>> GetSubTaskTemplatesAsync();
+
+    Task SaveSubTaskTemplatesAsync(IEnumerable<Models.SubTaskTemplate> templates);
+
     Task ExportAllAsync(string filePath);
 
     Task ImportAllAsync(string filePath);
