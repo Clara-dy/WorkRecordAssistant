@@ -23,7 +23,7 @@
 ## 快速开始
 
 ```powershell
-cd C:\Users\32230\WorkRecordAssistant
+cd D:\WorkRecordAssistant\Source
 
 # 还原依赖并运行
 dotnet restore
@@ -51,10 +51,32 @@ src\WorkRecordAssistant\bin\Release\net8.0-windows\win-x64\publish\WorkRecordAss
 
 ## 数据存储位置
 
+首选（D 盘可用时）：
+
 ```
-%LocalAppData%\WorkRecordAssistant\
+D:\WorkRecordAssistant\Data\
 ├── settings.json      # 应用设置
 └── workrecords.db     # SQLite 工作记录与快捷按钮
+```
+
+回退（无 D 盘时）：
+
+```
+%LocalAppData%\WorkRecordAssistant\
+```
+
+首次启动若检测到旧目录有数据、新目录尚无数据库，会自动拷贝迁移，不丢记录。
+
+## 安装位置
+
+```
+D:\WorkRecordAssistant\App\WorkRecordAssistant.exe
+```
+
+源码工程：
+
+```
+D:\WorkRecordAssistant\Source\
 ```
 
 ## 项目结构
